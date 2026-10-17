@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="acess_desc">Permite que o SEU computador, pareado pelo Remoto GF, toque, role e digite neste celular enquanto você estiver compartilhando a tela com ele. Só funciona durante uma sessão que você inicia no app, e uma notificação fica visível o tempo todo com um botão para parar.</string>
+    <string name="acess_label">Remoto GF: controle pelo PC</string>
+</resources>
