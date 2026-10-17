@@ -1,0 +1,80 @@
+name: Gerar apps
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    name: App do celular (APK)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Compilar APK
+        run: gradle -p android assembleRelease --no-daemon --stacktrace
+      - run: cp android/app/build/outputs/apk/release/app-release.apk RemotoGF.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: RemotoGF.apk
+
+  windows:
+    name: Instalador do PC (.exe)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Dependências
+        run: pip install -r requirements.txt pyinstaller
+      - name: Gerar RemotoGF.exe
+        run: >
+          pyinstaller --noconfirm --onefile --windowed --name RemotoGF --icon icon.ico
+          --add-data "web;web"
+          --hidden-import pynput.keyboard._win32 --hidden-import pynput.mouse._win32
+          --hidden-import pystray._win32 --collect-submodules comtypes
+          --collect-all screen_brightness_control
+          remoto.py
+      - name: Gerar instalador
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { choco install innosetup --no-progress -y }
+          & $iscc "/DAppVersion=1.0.${{ github.run_number }}" installer.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/RemotoGF-Instalador.exe
+
+  release:
+    name: Publicar downloads
+    needs: [android, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Remoto GF 1.0.${{ github.run_number }}
+          make_latest: true
+          body: |
+            **Celular:** baixe `RemotoGF.apk` no celular e instale (permita "instalar apps desconhecidos" quando o Android pedir).
+            **PC:** baixe `RemotoGF-Instalador.exe` e siga o instalador.
+          files: |
+            out/RemotoGF.apk
+            out/RemotoGF-Instalador.exe
