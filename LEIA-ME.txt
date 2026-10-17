@@ -1,0 +1,36 @@
+REMOTO GF
+Controle o PC pelo celular: touchpad, teclado, volume (geral, por app e pelos botões
+do celular), mídia, janelas abertas, navegador, atalhos do DaVinci Resolve, tela ao
+vivo, energia e copiar/colar entre os dois.
+
+INSTALAR (versão final)
+PC:      RemotoGF-Instalador.exe  -> próximo, próximo, concluir. Ele já libera o Firewall.
+Celular: RemotoGF.apk -> abra no celular e instale (o Android pede para permitir
+         "instalar apps desconhecidos" na primeira vez).
+Os dois arquivos saem prontos na página "Releases" do repositório no GitHub,
+gerados automaticamente a cada atualização do código.
+
+PRIMEIRO USO
+1. Abra o Remoto GF no PC. Aparece uma janela com QR code e um PIN.
+2. Abra o app no celular. Ele procura o PC sozinho na rede.
+3. Toque no PC encontrado, digite o PIN e pronto.
+Celular e PC precisam estar no mesmo Wi-Fi.
+
+NO PC
+- Fechar a janela deixa ele rodando na bandeja (perto do relógio).
+- "Iniciar junto com o Windows" na janela ou no instalador.
+- "Novo acesso" desconecta todos os celulares e troca o PIN.
+- "Editar apps rápidos" muda a lista do painel "Abrir no PC".
+- Atalho "Remoto GF (administrador)" no menu Iniciar: use se precisar controlar
+  programas abertos como administrador.
+
+AVISOS NO CELULAR (notificação do Android)
+- Programa aberto como administrador: o Windows bloqueia o controle remoto nele.
+  Abra o Remoto GF pelo atalho "(administrador)".
+- Janela de permissão do Windows (UAC): só pode ser confirmada no próprio PC.
+- PIN errado 5 vezes, novo aparelho conectado, desligamento agendado.
+
+PARA DESENVOLVER
+- PC sem instalar: iniciar.bat (usa Python).
+- App Android: abra a pasta android/ no Android Studio.
+- A interface do celular é a pasta web/ (a mesma no app e no navegador).

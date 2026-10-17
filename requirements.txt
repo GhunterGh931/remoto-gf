@@ -1,0 +1,12 @@
+aiohttp
+pynput
+pycaw; sys_platform == "win32"
+comtypes; sys_platform == "win32"
+psutil
+mss
+Pillow
+qrcode
+pyperclip
+pystray
+screen-brightness-control
+cryptography

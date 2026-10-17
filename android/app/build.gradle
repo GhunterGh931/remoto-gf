@@ -1,0 +1,47 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'br.gf.remoto'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'br.gf.remoto'
+        minSdk 24
+        targetSdk 34
+        versionCode((System.getenv('GITHUB_RUN_NUMBER') ?: '1') as int)
+        versionName "1.0.${System.getenv('GITHUB_RUN_NUMBER') ?: '0'}"
+    }
+
+    signingConfigs {
+        gf {
+            storeFile file('remoto.jks')
+            storePassword 'remotogf'
+            keyAlias 'remoto'
+            keyPassword 'remotogf'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.gf
+        }
+        debug {
+            signingConfig signingConfigs.gf
+        }
+    }
+
+    // a interface do celular é a mesma pasta web/ do projeto
+    sourceSets {
+        main {
+            assets.srcDirs = ['src/main/assets', '../../web']
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

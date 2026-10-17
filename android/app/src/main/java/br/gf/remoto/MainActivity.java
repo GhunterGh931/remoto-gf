@@ -1,0 +1,334 @@
+package br.gf.remoto;
+
+import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.ActivityInfo;
+import android.content.pm.PackageManager;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.net.Uri;
+import android.net.wifi.WifiManager;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
+import android.view.KeyEvent;
+import android.view.View;
+import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+
+import org.json.JSONObject;
+
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
+import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
+
+/**
+ * Remoto GF para Android.
+ * A interface é a mesma do PC (pasta web/), e esta Activity entrega a ela o que só um app
+ * instalado consegue: botões de volume, notificações do sistema, giroscópio, tela ligada,
+ * orientação e a busca automática do PC na rede.
+ */
+public class MainActivity extends Activity implements SensorEventListener {
+
+    private static final String CHANNEL = "avisos";
+    private static final int DISCOVERY_PORT = 8765;
+
+    private WebView web;
+    private final Handler ui = new Handler(Looper.getMainLooper());
+    private volatile boolean volumeKeys = false;
+    private SensorManager sensors;
+    private Sensor gyro;
+    private boolean gyroOn = false;
+    private int notifId = 100;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        getWindow().setStatusBarColor(0xFF101216);
+        getWindow().setNavigationBarColor(0xFF15181D);
+
+        web = new WebView(this);
+        web.setBackgroundColor(0xFF101216);
+        web.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        setContentView(web);
+
+        WebSettings s = web.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setDatabaseEnabled(true);
+        s.setAllowFileAccess(true);
+        s.setAllowFileAccessFromFileURLs(true);
+        s.setAllowUniversalAccessFromFileURLs(true);
+        s.setMediaPlaybackRequiresUserGesture(false);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        s.setTextZoom(100);
+
+        web.setWebChromeClient(new WebChromeClient());
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
+                Uri u = req.getUrl();
+                if ("file".equals(u.getScheme())) return false;
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, u));
+                } catch (ActivityNotFoundException ignored) {
+                }
+                return true;
+            }
+        });
+        web.addJavascriptInterface(new Bridge(), "Android");
+        web.loadUrl("file:///android_asset/index.html");
+
+        sensors = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        if (sensors != null) gyro = sensors.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel ch = new NotificationChannel(CHANNEL, "Avisos do PC",
+                    NotificationManager.IMPORTANCE_HIGH);
+            ch.setDescription("Pedidos de autorização e avisos do Remoto GF");
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            if (nm != null) nm.createNotificationChannel(ch);
+        }
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1);
+        }
+    }
+
+    private void js(final String code) {
+        ui.post(() -> {
+            if (web != null) web.evaluateJavascript(code, null);
+        });
+    }
+
+    // ---------------------------------------------------------- botões de volume
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent e) {
+        int k = e.getKeyCode();
+        if (volumeKeys && (k == KeyEvent.KEYCODE_VOLUME_UP || k == KeyEvent.KEYCODE_VOLUME_DOWN)) {
+            if (e.getAction() == KeyEvent.ACTION_DOWN) {
+                js("window.onVolumeKey&&window.onVolumeKey('" + (k == KeyEvent.KEYCODE_VOLUME_UP ? "up" : "down") + "')");
+            }
+            return true; // não mexe no volume do celular
+        }
+        return super.dispatchKeyEvent(e);
+    }
+
+    // ---------------------------------------------------------- voltar
+    @Override
+    @SuppressWarnings("deprecation")
+    public void onBackPressed() {
+        web.evaluateJavascript("(window.onNativeBack&&window.onNativeBack())?'1':'0'", value -> {
+            if (value == null || !value.contains("1")) MainActivity.super.onBackPressed();
+        });
+    }
+
+    // ---------------------------------------------------------- ciclo de vida
+    @Override
+    protected void onResume() {
+        super.onResume();
+        web.onResume();
+        if (gyroOn && gyro != null) sensors.registerListener(this, gyro, SensorManager.SENSOR_DELAY_GAME);
+        js("window.onNativeResume&&window.onNativeResume()");
+    }
+
+    @Override
+    protected void onPause() {
+        if (sensors != null) sensors.unregisterListener(this);
+        super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (web != null) web.destroy();
+        super.onDestroy();
+    }
+
+    // ---------------------------------------------------------- giroscópio
+    @Override
+    public void onSensorChanged(SensorEvent ev) {
+        if (!gyroOn) return;
+        // rad/s: z = girar para os lados, x = inclinar para cima/baixo
+        float z = ev.values[2], x = ev.values[0];
+        js("window.onNativeGyro&&window.onNativeGyro(" + z + "," + x + ")");
+    }
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+    }
+
+    // ---------------------------------------------------------- ponte com a interface
+    public class Bridge {
+
+        @JavascriptInterface
+        public boolean isApp() {
+            return true;
+        }
+
+        @JavascriptInterface
+        public boolean hasGyro() {
+            return gyro != null;
+        }
+
+        @JavascriptInterface
+        public void vibrate(int ms) {
+            Vibrator v = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+            if (v == null) return;
+            if (Build.VERSION.SDK_INT >= 26) v.vibrate(VibrationEffect.createOneShot(Math.max(1, ms), VibrationEffect.DEFAULT_AMPLITUDE));
+            else v.vibrate(ms);
+        }
+
+        @JavascriptInterface
+        public void keepScreenOn(final boolean on) {
+            ui.post(() -> {
+                if (on) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            });
+        }
+
+        @JavascriptInterface
+        public void setOrientation(final String mode) {
+            ui.post(() -> {
+                int o = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+                if ("portrait".equals(mode)) o = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+                else if ("landscape".equals(mode)) o = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;
+                setRequestedOrientation(o);
+            });
+        }
+
+        @JavascriptInterface
+        public void setImmersive(final boolean on) {
+            ui.post(() -> {
+                View d = getWindow().getDecorView();
+                d.setSystemUiVisibility(on ? (View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE) : 0);
+            });
+        }
+
+        @JavascriptInterface
+        public void setVolumeKeys(boolean on) {
+            volumeKeys = on;
+        }
+
+        @JavascriptInterface
+        public void startGyro() {
+            ui.post(() -> {
+                if (gyro == null) return;
+                gyroOn = true;
+                sensors.registerListener(MainActivity.this, gyro, SensorManager.SENSOR_DELAY_GAME);
+            });
+        }
+
+        @JavascriptInterface
+        public void stopGyro() {
+            ui.post(() -> {
+                gyroOn = false;
+                if (sensors != null) sensors.unregisterListener(MainActivity.this);
+            });
+        }
+
+        @JavascriptInterface
+        public void copy(String text) {
+            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("Remoto GF", text));
+        }
+
+        @JavascriptInterface
+        public void notify(String title, String msg) {
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            Intent open = new Intent(MainActivity.this, MainActivity.class);
+            open.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            PendingIntent pi = PendingIntent.getActivity(MainActivity.this, 0, open,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            Notification.Builder b = Build.VERSION.SDK_INT >= 26
+                    ? new Notification.Builder(MainActivity.this, CHANNEL)
+                    : new Notification.Builder(MainActivity.this);
+            b.setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setContentTitle(title)
+                    .setContentText(msg)
+                    .setStyle(new Notification.BigTextStyle().bigText(msg))
+                    .setAutoCancel(true)
+                    .setContentIntent(pi);
+            try {
+                nm.notify(notifId++, b.build());
+            } catch (SecurityException ignored) {
+            }
+        }
+
+        /** Procura PCs com o Remoto GF aberto na mesma rede (resposta UDP). */
+        @JavascriptInterface
+        public void discover() {
+            new Thread(() -> {
+                WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                WifiManager.MulticastLock lock = null;
+                try {
+                    if (wm != null) {
+                        lock = wm.createMulticastLock("remotogf");
+                        lock.acquire();
+                    }
+                } catch (Exception ignored) {
+                }
+                try (DatagramSocket sock = new DatagramSocket()) {
+                    sock.setBroadcast(true);
+                    sock.setSoTimeout(700);
+                    byte[] ask = "REMOTO_GF?".getBytes(StandardCharsets.UTF_8);
+                    InetAddress all = InetAddress.getByName("255.255.255.255");
+                    long end = System.currentTimeMillis() + 2600;
+                    int sent = 0;
+                    byte[] buf = new byte[2048];
+                    while (System.currentTimeMillis() < end) {
+                        if (sent < 3) {
+                            sock.send(new DatagramPacket(ask, ask.length, all, DISCOVERY_PORT));
+                            sent++;
+                        }
+                        try {
+                            DatagramPacket p = new DatagramPacket(buf, buf.length);
+                            sock.receive(p);
+                            String txt = new String(p.getData(), 0, p.getLength(), StandardCharsets.UTF_8);
+                            JSONObject j = new JSONObject(txt);
+                            j.put("ip", p.getAddress().getHostAddress());
+                            js("window.onDiscovered&&window.onDiscovered(" + JSONObject.quote(j.toString()) + ")");
+                        } catch (SocketTimeoutException ignored) {
+                        } catch (Exception ignored) {
+                        }
+                    }
+                } catch (Exception e) {
+                    js("window.onDiscoverError&&window.onDiscoverError(" + JSONObject.quote(String.valueOf(e.getMessage())) + ")");
+                } finally {
+                    if (lock != null && lock.isHeld()) lock.release();
+                    js("window.onDiscoverDone&&window.onDiscoverDone()");
+                }
+            }).start();
+        }
+
+        @JavascriptInterface
+        public String version() {
+            try {
+                return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            } catch (Exception e) {
+                return "?";
+            }
+        }
+    }
+}
