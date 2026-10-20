@@ -1,6 +1,7 @@
 package br.gf.remoto;
 
 import android.app.Activity;
+import android.app.DownloadManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -10,8 +11,14 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.BroadcastReceiver;
+import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
+import android.media.projection.MediaProjectionManager;
+import android.os.Environment;
+import android.provider.Settings;
+import android.text.TextUtils;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -28,6 +35,7 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -61,6 +69,12 @@ public class MainActivity extends Activity implements SensorEventListener {
     private boolean gyroOn = false;
     private int notifId = 100;
 
+    private static final int REQ_PROJECTION = 7001;
+    private static final int REQ_FILE_CHOOSER = 7002;
+    private String pendingHost, pendingToken, pendingName;
+    private ValueCallback<Uri[]> fileCallback;
+    private BroadcastReceiver controlRx;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -83,7 +97,25 @@ public class MainActivity extends Activity implements SensorEventListener {
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         s.setTextZoom(100);
 
-        web.setWebChromeClient(new WebChromeClient());
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback,
+                                             FileChooserParams fileChooserParams) {
+                if (fileCallback != null) fileCallback.onReceiveValue(null);
+                fileCallback = filePathCallback;
+                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("*/*");
+                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                try {
+                    startActivityForResult(Intent.createChooser(intent, "Escolher arquivo(s)"), REQ_FILE_CHOOSER);
+                    return true;
+                } catch (ActivityNotFoundException e) {
+                    fileCallback = null;
+                    return false;
+                }
+            }
+        });
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
@@ -113,6 +145,47 @@ public class MainActivity extends Activity implements SensorEventListener {
                 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1);
         }
+
+        controlRx = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context c, Intent i) {
+                js("window.onControlState&&window.onControlState(" + i.getBooleanExtra("on", false) + ")");
+            }
+        };
+        IntentFilter f = new IntentFilter("br.gf.remoto.CONTROL_STATE");
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(controlRx, f, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(controlRx, f);
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req == REQ_FILE_CHOOSER) {
+            if (fileCallback == null) return;
+            Uri[] results = null;
+            if (res == RESULT_OK && data != null) {
+                if (data.getClipData() != null) {
+                    int n = data.getClipData().getItemCount();
+                    results = new Uri[n];
+                    for (int i = 0; i < n; i++) results[i] = data.getClipData().getItemAt(i).getUri();
+                } else if (data.getData() != null) {
+                    results = new Uri[]{data.getData()};
+                }
+            }
+            fileCallback.onReceiveValue(results);
+            fileCallback = null;
+            return;
+        }
+        if (req != REQ_PROJECTION) return;
+        if (res != RESULT_OK || data == null) {
+            js("window.onControlDenied&&window.onControlDenied()");
+            return;
+        }
+        Intent svc = new Intent(this, ScreenService.class).setAction(ScreenService.ACTION_START)
+                .putExtra("code", res).putExtra("data", data)
+                .putExtra("host", pendingHost).putExtra("token", pendingToken).putExtra("name", pendingName);
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc);
+        else startService(svc);
     }
 
     private void js(final String code) {
@@ -160,6 +233,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @Override
     protected void onDestroy() {
+        try { if (controlRx != null) unregisterReceiver(controlRx); } catch (Exception ignored) {}
         if (web != null) web.destroy();
         super.onDestroy();
     }
@@ -328,6 +402,74 @@ public class MainActivity extends Activity implements SensorEventListener {
                 return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
             } catch (Exception e) {
                 return "?";
+            }
+        }
+
+        // ---- modo "ser controlado pelo PC"
+
+        @JavascriptInterface
+        public boolean controlRunning() {
+            return ScreenService.running;
+        }
+
+        /** True quando o usuário já ativou o serviço de acessibilidade do Remoto GF. */
+        @JavascriptInterface
+        public boolean accessibilityOn() {
+            String want = getPackageName() + "/" + ControlService.class.getName();
+            String enabled = Settings.Secure.getString(getContentResolver(),
+                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+            if (TextUtils.isEmpty(enabled)) return false;
+            TextUtils.SimpleStringSplitter sp = new TextUtils.SimpleStringSplitter(':');
+            sp.setString(enabled);
+            while (sp.hasNext()) {
+                if (sp.next().equalsIgnoreCase(want)) return true;
+            }
+            return false;
+        }
+
+        @JavascriptInterface
+        public void openAccessibility() {
+            try {
+                startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Exception ignored) {
+            }
+        }
+
+        /** Pede a confirmação de projeção de tela; ao confirmar, onActivityResult inicia a sessão. */
+        @JavascriptInterface
+        public void startBeControlled(String host, String token, String name) {
+            pendingHost = host;
+            pendingToken = token;
+            pendingName = name;
+            ui.post(() -> {
+                MediaProjectionManager mpm = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+                startActivityForResult(mpm.createScreenCaptureIntent(), REQ_PROJECTION);
+            });
+        }
+
+        @JavascriptInterface
+        public void stopBeControlled() {
+            startService(new Intent(MainActivity.this, ScreenService.class).setAction(ScreenService.ACTION_STOP));
+        }
+
+        @JavascriptInterface
+        public void downloadFile(String url, String filename) {
+            try {
+                DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                if (dm == null) return;
+                String safe = (filename == null || filename.trim().isEmpty()) ? "arquivo" : filename.trim();
+                DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url))
+                        .setTitle(safe)
+                        .setDescription("Baixando do PC pelo Remoto GF")
+                        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, safe);
+                dm.enqueue(req);
+            } catch (Exception ignored) {
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                } catch (Exception ignored2) {
+                }
             }
         }
     }

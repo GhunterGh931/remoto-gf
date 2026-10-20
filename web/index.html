@@ -336,6 +336,47 @@ nav button.active{color:var(--acc);background:var(--accbg)}
       <p class="hint">"Enviar para o PC" coloca o texto na área de transferência de lá (depois é só Ctrl+V). "Digitar no PC" escreve o texto onde o cursor estiver.</p>
     </div>
   </section>
+
+  <!-- ARQUIVOS ENTRE PC E CELULAR -->
+  <section class="panel" data-p="arquivos">
+    <div class="card">
+      <h3>Enviar deste celular para o PC</h3>
+      <input type="file" id="fileIn" multiple class="hidden">
+      <div class="row">
+        <button class="pri" id="filePickBtn" style="width:100%">Escolher arquivo(s) no celular</button>
+      </div>
+      <div id="fileProg" class="hint hidden" style="margin-top:10px;color:var(--acc);font-weight:600">Enviando...</div>
+      <p class="hint" id="fileDirHint">Os arquivos enviados ficam salvos no PC em Downloads\Remoto GF.</p>
+      <button id="fileOpenPcBtn" style="width:100%;margin-top:8px;background:var(--card2)">Abrir pasta no PC</button>
+    </div>
+    <div class="card">
+      <h3>Arquivos disponíveis (PC ⇄ Celular)</h3>
+      <p class="hint" style="margin-top:0;margin-bottom:10px">Para mandar um arquivo do PC para cá, clique em "Enviar arquivo ao celular" na janela do Remoto GF no computador.</p>
+      <div id="fileList"><div class="empty">Nenhum arquivo trocado ainda</div></div>
+    </div>
+  </section>
+
+  <!-- DEIXAR O PC ME CONTROLAR (só no app) -->
+  <section class="panel" data-p="espelhar">
+    <div class="card">
+      <h3>Deixar o PC ver e controlar este celular</h3>
+      <p class="hint" style="margin-top:0">O seu computador pareado poderá ver a tela e tocar por você, útil para mexer no WhatsApp ou em qualquer app pelo PC. Nada começa sem a sua confirmação, e você pode parar quando quiser.</p>
+      <div id="mirrorState" style="text-align:center;padding:14px 0">
+        <div id="mirrorDot" style="font-size:15px;font-weight:700;color:var(--mut)">○ Parado</div>
+      </div>
+      <button class="pri" id="mirrorBtn" style="width:100%">Iniciar</button>
+      <button id="mirrorStop" class="hidden danger" style="width:100%;margin-top:8px">Parar de compartilhar</button>
+    </div>
+    <div class="card">
+      <h3>Como funciona</h3>
+      <div class="help">
+        <div><b>1. Acessibilidade</b><span>Uma vez só, você ativa o serviço do Remoto GF nas configurações do Android. É o que deixa o PC tocar por você.</span></div>
+        <div><b>2. Permitir a tela</b><span>Ao iniciar, o Android pergunta se pode transmitir a tela. Você confirma.</span></div>
+        <div><b>3. No PC</b><span>Abra o Remoto GF no computador e clique em "Ver meu celular".</span></div>
+        <div><b>Segurança</b><span>Enquanto dura, fica uma notificação fixa aqui com o botão Parar. Só o PC pareado por PIN recebe a tela.</span></div>
+      </div>
+    </div>
+  </section>
 </main>
 
 <nav id="nav"></nav>
@@ -415,6 +456,8 @@ const P={
   min:'<path d="M5 18h14"/>', max:'<rect x="5" y="5" width="14" height="14" rx="2"/>', x:'<path d="M6 6l12 12M18 6 6 18"/>',
   focus:'<path d="M9 5H5v4M15 5h4v4M9 19H5v-4M15 19h4v-4"/>', full:'<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
   gyro:'<rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M3 8c-1.3 2.5-1.3 5.5 0 8M21 8c1.3 2.5 1.3 5.5 0 8"/>',
+  arquivos:'<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 11v6M9.5 13.5 12 11l2.5 2.5"/>',
+  espelhar:'<rect x="3" y="4" width="13" height="9" rx="1.5"/><rect x="15" y="10" width="6" height="10" rx="1.5"/><path d="M8 20h4"/>',
 };
 const ic=(n,s)=>`<svg class="i" viewBox="0 0 24 24"${s?` style="width:${s}px;height:${s}px"`:''}>${P[n]||''}</svg>`;
 
@@ -423,9 +466,10 @@ const PANELS={
   mouse:['Touchpad','mouse'], midia:['Controle de mídia','midia'], apps:['Controle de apps','apps'],
   nav:['Controle do navegador','nav'], teclado:['Teclado','teclado'], fn:['Teclas numéricas e de função','fn'],
   atalhos:['Barra de atalhos','atalhos'], tela:['Tela do PC','tela'], energia:['Controle de energia','energia'],
-  clip:['Copiar e colar entre PC e celular','clip'],
+  clip:['Copiar e colar entre PC e celular','clip'], arquivos:['Passar arquivos PC e celular','arquivos'],
+  espelhar:['Deixar o PC me controlar','espelhar'],
 };
-const SHORT={mouse:'Mouse',midia:'Mídia',apps:'Apps',nav:'Navegador',teclado:'Teclado',fn:'Fn',atalhos:'Atalhos',tela:'Tela',energia:'Energia',clip:'Copiar'};
+const SHORT={mouse:'Mouse',midia:'Mídia',apps:'Apps',nav:'Navegador',teclado:'Teclado',fn:'Fn',atalhos:'Atalhos',tela:'Tela',energia:'Energia',clip:'Copiar',arquivos:'Arquivos',espelhar:'PC controla'};
 const DEF={
   sens:1.0, scroll:1.0, natural:true,
   buttons:true, gyro:false, onehand:false, lefty:false,
@@ -433,11 +477,12 @@ const DEF={
   longRight:true, twoTapRight:true, twoScroll:true, pinch:true, dblDrag:true, threeDrag:true,
   feedback:true, kbBuffer:false, modTap:false,
   sounds:true, haptic:true, volKeys:true, autoReconnect:true, wake:true, portrait:true,
-  order:['midia','apps','nav','teclado','fn','atalhos','tela','energia','clip'], hidden:[],
+  order:['midia','apps','nav','teclado','fn','atalhos','tela','energia','clip','arquivos','espelhar'], hidden:[],
 };
 const S=Object.assign({},DEF,LS.get('settings',{}));
 for(const k of DEF.order) if(!S.order.includes(k)) S.order.push(k);
 S.order=S.order.filter(k=>PANELS[k]&&k!=='mouse');
+const avail=k=>k!=='espelhar'||APP;   // "ser controlado" só existe no app instalado
 const saveS=()=>LS.set('settings',S);
 
 /* ============================================================ feedback (som, vibração, bolha) */
@@ -510,6 +555,7 @@ function handle(m){
     case 'windows': buildWins(m.list); break;
     case 'stats': setStats(m); break;
     case 'clip': $('#clip').value=m.text; toast('Recebido do PC','Texto da área de transferência do PC.','ok'); break;
+    case 'files': buildFiles(m.list||[], m.pasta); break;
     case 'notify': toast(m.title,m.msg,m.level,m.actions,m.id,m.sticky);
       if(APP&&(document.hidden||m.level==='warn'||m.level==='error')) try{ NA.notify(m.title||'Remoto GF',m.msg||''); }catch(e){}
       break;
@@ -520,7 +566,7 @@ function toast(title,msg,level='info',actions=[],id=null,sticky=false){
   if(id) $$('.toast').forEach(t=>{ if(t.dataset.id===id) t.remove(); });
   const t=h('div',{class:'toast '+level,'data-id':id||''},h('b',{},title||''),msg?h('p',{},msg):null);
   const row=h('div',{class:'ta'});
-  for(const a of actions||[]) row.append(h('button',{onclick:()=>{send(a.send);t.remove();}},a.label));
+  for(const a of actions||[]) row.append(h('button',{onclick:()=>{if(a.send&&a.send.t==='files_get') show('arquivos'); else send(a.send);t.remove();}},a.label));
   if(sticky) row.append(h('button',{onclick:()=>t.remove()},'Ok'));
   if(row.children.length) t.append(row);
   t.addEventListener('click',e=>{ if(e.target.tagName!=='BUTTON') t.remove(); });
@@ -533,7 +579,7 @@ function toast(title,msg,level='info',actions=[],id=null,sticky=false){
 let cur='mouse', timers={};
 function buildNav(){
   const n=$('#nav'); n.innerHTML='';
-  const list=['mouse',...S.order.filter(k=>!S.hidden.includes(k))];
+  const list=['mouse',...S.order.filter(k=>!S.hidden.includes(k)&&avail(k))];
   for(const k of list) n.append(h('button',{'data-p':k,class:k===cur?'active':'',html:ic(PANELS[k][1])+`<span>${SHORT[k]}</span>`,onclick:()=>show(k)}));
   if(!list.includes(cur)) show('mouse');
 }
@@ -549,6 +595,8 @@ function onPanel(k){
   if(k==='apps') send({t:'windows'});
   if(k==='energia'){send({t:'stats'});timers.e=setInterval(()=>send({t:'stats'}),3000);}
   if(k==='tela') startScreen();
+  if(k==='arquivos') send({t:'files_get'});
+  if(k==='espelhar') updateMirror();
 }
 
 /* ============================================================ TOUCHPAD */
@@ -827,6 +875,60 @@ $('#clipGet').onclick=()=>{ send({t:'clip_get'}); tick(); };
 $('#clipType').onclick=()=>{ const v=$('#clip').value; if(v){ send({t:'type',text:v}); fb('Digitando no PC'); tick(); } };
 $('#clipCopy').onclick=async()=>{ const ta=$('#clip'); if(APP){ NA.copy(ta.value); fb('Copiado no celular'); tick(); return; } try{ await navigator.clipboard.writeText(ta.value); }catch(e){ ta.select(); document.execCommand('copy'); } fb('Copiado no celular'); tick(); };
 
+/* ============================================================ arquivos entre PC e celular */
+function fmtSize(b){
+  if(b<1024) return b+' B';
+  if(b<1024*1024) return (b/1024).toFixed(1)+' KB';
+  if(b<1024*1024*1024) return (b/1024/1024).toFixed(1)+' MB';
+  return (b/1024/1024/1024).toFixed(2)+' GB';
+}
+function buildFiles(list, pasta){
+  if(pasta) $('#fileDirHint').textContent='Salvos no PC em: '+pasta;
+  const box=$('#fileList');
+  if(!list||!list.length){ box.innerHTML='<div class="empty">Nenhum arquivo trocado ainda</div>'; return; }
+  box.innerHTML='';
+  for(const f of list){
+    const dlUrl=`${base()}/api/file/${encodeURIComponent(f.id)}?t=${encodeURIComponent(token)}`;
+    const row=h('div',{class:'win'},
+      h('div',{class:'av',style:`background:${col(f.nome)}`},(f.nome.split('.').pop()||'ARQ').slice(0,3).toUpperCase()),
+      h('div',{class:'wt'},h('b',{},f.nome),h('small',{},`${fmtSize(f.tam||0)} · de ${f.origem||'PC'}`)),
+      h('div',{class:'wa'},
+        h('button',{class:'pri',style:'padding:8px 12px;font-size:13px',onclick:()=>{
+          tick();
+          if(APP && NA.downloadFile){ NA.downloadFile(dlUrl, f.nome); toast('Baixando', f.nome+' na pasta Downloads do celular.','ok'); }
+          else { const a=h('a',{href:dlUrl,download:f.nome,target:'_blank'}); document.body.append(a); a.click(); a.remove(); }
+        }},'Baixar'),
+        h('button',{html:ic('x',18),'aria-label':'Remover da lista',onclick:()=>{ send({t:'file_del',id:f.id}); tick(); }})
+      )
+    );
+    box.append(row);
+  }
+}
+$('#filePickBtn').onclick=()=>{ $('#fileIn').click(); tick(); };
+$('#fileOpenPcBtn').onclick=()=>{ send({t:'files_open_dir'}); tick(); };
+$('#fileIn').onchange=async e=>{
+  const files=[...(e.target.files||[])];
+  if(!files.length) return;
+  const prog=$('#fileProg');
+  prog.textContent=`Enviando ${files.length} arquivo(s)...`;
+  prog.classList.remove('hidden');
+  const fd=new FormData();
+  for(const f of files) fd.append('file', f, f.name);
+  try{
+    const r=await fetch(`${base()}/api/upload?t=${encodeURIComponent(token)}&n=${encodeURIComponent(devName())}`,{method:'POST',body:fd});
+    const j=await r.json();
+    if(!r.ok) throw new Error(j.erro||'Falha no envio');
+    if(j.list) buildFiles(j.list);
+    toast('Enviado ao PC', `${files.length} arquivo(s) salvo(s) no computador.`, 'ok');
+    tick(true);
+  }catch(err){
+    toast('Erro ao enviar', err.message||'Não foi possível enviar o arquivo.', 'error');
+  }finally{
+    prog.classList.add('hidden');
+    e.target.value='';
+  }
+};
+
 /* ============================================================ confirmação */
 function ask(title,msg,yes,yesLabel='Confirmar',extra=[]){
   $('#mTitle').textContent=title; $('#mMsg').textContent=msg; $('#mYes').textContent=yesLabel;
@@ -918,6 +1020,7 @@ function renderOrder(body){
   body.append(sec('Segure e arraste para reordenar · toque no nome para mostrar ou esconder'));
   const list=h('div',{}); body.append(list);
   for(const k of S.order){
+    if(!avail(k)) continue;
     const row=h('div',{class:'ord'+(S.hidden.includes(k)?' off':''),'data-k':k},
       h('span',{class:'oi',html:ic(PANELS[k][1],26)}), h('span',{class:'ol'},PANELS[k][0]), h('span',{class:'handle',html:ic('handle',24)}));
     row.children[1].onclick=()=>{ const i=S.hidden.indexOf(k); i>=0?S.hidden.splice(i,1):S.hidden.push(k); row.classList.toggle('off'); saveS(); buildNav(); tick(); };
@@ -969,7 +1072,32 @@ window.onNativeBack=()=>{
   if($('#settings').classList.contains('open')){ if(sPages.length>1){ sPages.pop(); renderS(); } else closeSettings(); return true; }
   if(cur!=='mouse'){ show('mouse'); return true; }
   return false; };
-window.onNativeResume=()=>{ if(token&&(!ws||ws.readyState>1)) connect(); };
+window.onNativeResume=()=>{ if(token&&(!ws||ws.readyState>1)) connect(); updateMirror(); };
+
+/* ====== deixar o PC controlar este celular (só no app) ====== */
+function updateMirror(){
+  if(!APP) return;
+  let running=false, acc=false;
+  try{ running=NA.controlRunning(); acc=NA.accessibilityOn(); }catch(e){}
+  const dot=$('#mirrorDot'), btn=$('#mirrorBtn'), stop=$('#mirrorStop');
+  if(!dot) return;
+  if(running){ dot.textContent='● O PC está vendo este celular'; dot.style.color='var(--ok)';
+    btn.classList.add('hidden'); stop.classList.remove('hidden'); }
+  else { dot.textContent='○ Parado'; dot.style.color='var(--mut)';
+    stop.classList.add('hidden'); btn.classList.remove('hidden');
+    btn.textContent = acc ? 'Iniciar' : 'Ativar acessibilidade (passo 1)'; }
+}
+$('#mirrorBtn').onclick=()=>{
+  if(!APP) return;
+  if(!host){ toast('Conecte a um PC primeiro','Vá na aba Mouse, pareie com o PC e volte aqui.','warn'); return; }
+  let acc=false; try{ acc=NA.accessibilityOn(); }catch(e){}
+  if(!acc){ ask('Ativar acessibilidade','Abra Acessibilidade > Remoto GF e ative. Isso é o que deixa o PC tocar por você. Depois volte e toque em Iniciar.',()=>{ try{NA.openAccessibility()}catch(e){} },'Abrir configurações'); return; }
+  try{ NA.startBeControlled(host, token||'', devName()); }catch(e){}
+  tick();
+};
+$('#mirrorStop').onclick=()=>{ try{NA.stopBeControlled()}catch(e){} tick(); };
+window.onControlState=on=>{ updateMirror(); toast(on?'Compartilhando a tela':'Compartilhamento encerrado', on?'O PC já pode ver e controlar este celular.':'O PC não vê mais o celular.', on?'ok':'info'); };
+window.onControlDenied=()=>{ toast('Não iniciou','Você não permitiu a transmissão da tela.','warn'); updateMirror(); };
 document.addEventListener('pointerdown',()=>{ wake(); lockPortrait(); },{once:true});
 
 /* ============================================================ início */

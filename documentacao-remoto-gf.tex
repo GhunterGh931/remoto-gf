@@ -1,0 +1,289 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[a4paper,margin=2.4cm]{geometry}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{booktabs}
+\usepackage{tcolorbox}
+\usepackage{hyperref}
+
+\definecolor{laranja}{HTML}{E35A1C}
+\definecolor{grafite}{HTML}{23282F}
+\definecolor{cinza}{HTML}{6A7280}
+\definecolor{fundo}{HTML}{F4F5F7}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=laranja,
+  urlcolor=laranja,
+  pdftitle={Remoto GF - Documentacao},
+  pdfauthor={Gabriel Francisco Fulgoni}
+}
+
+\titleformat{\section}{\Large\bfseries\color{grafite}}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\large\bfseries\color{grafite}}{\thesubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{1.4em}{0.6em}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\color{cinza}\small Remoto GF}
+\rhead{\color{cinza}\small Documentacao do projeto}
+\cfoot{\color{cinza}\small \thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\newtcolorbox{nota}[1][]{colback=fundo,colframe=laranja,boxrule=0.8pt,
+  arc=3pt,left=8pt,right=8pt,top=6pt,bottom=6pt,#1}
+
+\newcommand{\feito}{\textcolor{laranja}{\textbf{[Pronto]}}\ }
+\newcommand{\pendente}{\textcolor{cinza}{\textbf{[A fazer]}}\ }
+
+\setlist{itemsep=2pt,topsep=4pt}
+
+\begin{document}
+
+\begin{titlepage}
+\centering
+\vspace*{3cm}
+{\Huge\bfseries\color{laranja} Remoto GF\par}
+\vspace{0.6cm}
+{\LARGE\color{grafite} Documentacao do projeto\par}
+\vspace{0.4cm}
+{\large\color{cinza} Controle do PC pelo celular, e o plano de controlar o celular pelo PC\par}
+\vspace{2cm}
+\begin{tcolorbox}[colback=fundo,colframe=laranja,width=0.8\textwidth,halign=center,arc=4pt]
+\large Autor: \textbf{Gabriel Francisco Fulgoni}\\[4pt]
+Editor de video e pos-producao audiovisual\\[4pt]
+Repositorio: \url{https://github.com/GhunterGh931/remoto-gf}
+\end{tcolorbox}
+\vfill
+{\color{cinza} Barueri, SP \quad\textbullet\quad Versao 1.0 \quad\textbullet\quad 19 de outubro de 2026\par}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Visao geral}
+
+O \textbf{Remoto GF} e um projeto pessoal que transforma o celular em um controle
+remoto completo do computador, pela rede Wi-Fi local. O celular abre uma pagina
+no navegador (ou um aplicativo instalado) e comanda o PC: mouse, teclado, volume,
+aplicativos abertos, tela ao vivo e mais. Nao e preciso cadastro, nuvem ou internet
+externa: tudo acontece entre o celular e o PC na mesma rede.
+
+O projeto tem duas direcoes de controle:
+
+\begin{itemize}
+  \item \feito \textbf{Celular controla o PC.} Concluido e funcionando.
+  \item \feito \textbf{PC controla o celular e troca arquivos.} Concluido e funcionando
+  dentro do proprio Remoto GF (ver Secao~\ref{sec:futuro}).
+\end{itemize}
+
+\begin{nota}
+\textbf{Principio de seguranca do projeto:} tudo roda apenas na rede local do usuario,
+o acesso e protegido por um PIN, e nenhuma acao sensivel acontece sem a confirmacao
+da pessoa. O projeto nao coleta nem envia dados para fora.
+\end{nota}
+
+% ============================================================
+\section{Arquitetura}
+
+\subsection{Como as pecas se conectam}
+
+\begin{enumerate}
+  \item \textbf{Servidor no PC} (\texttt{remoto.py}, em Python): abre um servidor web
+  e WebSocket na porta 8765, exibe uma janela com QR Code e PIN, e executa no PC os
+  comandos que chegam do celular.
+  \item \textbf{Interface do celular} (\texttt{web/index.html}): uma unica pagina com
+  todos os paineis de controle. Funciona tanto no navegador do celular quanto dentro
+  do aplicativo Android.
+  \item \textbf{Aplicativo Android} (pasta \texttt{android/}): empacota a mesma interface
+  em um app instalavel e adiciona recursos que so um app tem (botoes de volume,
+  notificacoes do sistema, giroscopio, busca automatica do PC na rede).
+\end{enumerate}
+
+\subsection{Conexao e pareamento}
+
+\begin{itemize}
+  \item Celular e PC precisam estar na mesma rede Wi-Fi.
+  \item O PC mostra um QR Code e um PIN de 6 digitos.
+  \item O celular escaneia o QR (ou digita o endereco e o PIN) e fica pareado por um
+  token salvo no aparelho.
+  \item No aplicativo, o celular encontra o PC sozinho na rede (busca por UDP broadcast).
+  \item Protecao: apos 5 erros de PIN, o pareamento fica bloqueado por 1 minuto, e o PC
+  avisa a tentativa.
+\end{itemize}
+
+% ============================================================
+\section{O que ja foi feito: celular controla o PC}
+\label{sec:feito}
+
+Todos os itens abaixo estao \feito implementados e testados.
+
+\subsection{Touchpad e mouse}
+\begin{itemize}
+  \item Area de toque com cursor, 1 dedo move, toque clica.
+  \item Toque com 2 dedos: clique direito. Toque com 3 dedos: clique do meio.
+  \item Pressao longa: clique direito. Toque duplo e arrastar: selecionar e mover.
+  \item Rolagem com 2 dedos e faixa lateral de rolagem.
+  \item Pinca para zoom (Ctrl + roda do mouse). Arrastar com 3 dedos.
+  \item Botoes fisicos do mouse (esquerdo, meio, direito) e trava de clique para arrastar.
+  \item Botao giroscopio: mover o cursor inclinando o celular.
+\end{itemize}
+
+\subsection{Teclado}
+\begin{itemize}
+  \item Digitacao ao vivo: o que se digita aparece no PC na hora.
+  \item Teclas modificadoras (Ctrl, Alt, Shift, Win), setas, Enter, Esc, Tab, Backspace.
+  \item Teclas de funcao (F1 a F12) e teclado numerico.
+  \item Modo buffer (digitar e enviar com Enter) e modificador por toque.
+\end{itemize}
+
+\subsection{Atalhos}
+\begin{itemize}
+  \item Atalhos gerais do Windows (copiar, colar, desfazer, Alt+Tab, print, etc).
+  \item Atalhos do \textbf{DaVinci Resolve} (play/pause, J K L, marcadores, corte, lamina,
+  zoom, etc), feitos sob medida para o fluxo de edicao.
+  \item Atalhos personalizados que o usuario cria e salva.
+\end{itemize}
+
+\subsection{Controle de midia e som}
+\begin{itemize}
+  \item Volume geral do PC, com mudo e passos de 5\%.
+  \item Volume por aplicativo (mixer): controlar cada programa que esta tocando som.
+  \item Controles de midia: play/pause, anterior, proximo, parar.
+  \item Brilho da tela (quando o PC permite).
+\end{itemize}
+
+\subsection{Aplicativos e janelas}
+\begin{itemize}
+  \item Lista das janelas abertas, com focar, minimizar, maximizar, fechar e forcar fim.
+  \item Abrir aplicativos a partir de uma lista configuravel.
+  \item Abrir sites ou pesquisas no navegador do PC.
+\end{itemize}
+
+\subsection{Tela ao vivo}
+\begin{itemize}
+  \item Ver a tela do PC no celular, com escolha de monitor, taxa de quadros e qualidade.
+  \item Tocar na imagem clica naquele ponto; segurar faz clique direito.
+\end{itemize}
+
+\subsection{Energia e sistema}
+\begin{itemize}
+  \item Bloquear, desligar a tela, suspender, reiniciar e desligar (com cancelamento).
+  \item Desligamento agendado por tempo.
+  \item Status do PC: CPU, memoria, bateria e tempo ligado.
+  \item Copiar e colar texto entre o celular e o PC.
+\end{itemize}
+
+\subsection{Configuracoes e experiencia}
+\begin{itemize}
+  \item Ordem dos paineis arrastavel e paineis que podem ser escondidos.
+  \item Controle com uma mao, modo canhoto, velocidades de movimento e rolagem.
+  \item Aceleracao, precisao, reducao de latencia, feedback por som e vibracao.
+  \item Reconexao automatica, tela sempre ligada, bloqueio de orientacao.
+\end{itemize}
+
+\subsection{Avisos de autorizacao no celular}
+O app avisa, por notificacao, quando: um programa esta aberto como administrador
+(o Windows bloqueia o controle remoto nele), aparece a janela de permissao do Windows,
+alguem erra o PIN varias vezes, um novo aparelho conecta, ou um desligamento foi agendado.
+
+\subsection{Distribuicao}
+\begin{itemize}
+  \item Repositorio publico no GitHub.
+  \item Compilacao automatica (GitHub Actions): a cada atualizacao do codigo, o servico
+  gera o \texttt{RemotoGF.apk} (celular) e o \texttt{RemotoGF-Instalador.exe} (PC) e publica
+  na pagina de Releases.
+  \item Scripts locais: \texttt{iniciar.bat} (roda sem instalar) e \texttt{gerar\_exe.bat}.
+\end{itemize}
+
+\begin{nota}
+\textbf{Links de download:}\\
+Celular (APK): \url{https://github.com/GhunterGh931/remoto-gf/releases/latest}\\
+PC (instalador): mesma pagina de Releases.
+\end{nota}
+
+% ============================================================
+\section{PC controla o celular e transferencia de arquivos}
+\label{sec:futuro}
+
+\subsection{Recursos implementados}
+Controlar o celular a partir do computador, pela rede Wi-Fi local, diretamente dentro do
+proprio aplicativo Remoto GF (no modo ``Deixar o PC me controlar'') e trocar arquivos nos
+dois sentidos:
+
+\begin{itemize}
+  \item \feito \textbf{Ver a tela do celular no PC e controlar com mouse e teclado:}
+  clique toca, arraste ou rodinha do mouse desliza, segurar faz pressao longa, teclado
+  digita ao vivo (incluindo \texttt{Ctrl+V} para colar texto do PC direto no celular).
+  \item \feito \textbf{Abrir e usar qualquer aplicativo do celular pelo PC, com foco no WhatsApp:}
+  botao dedicado ``WhatsApp'' na janela do PC e menu ``Abrir app'' que lista e abre
+  qualquer aplicativo instalado no celular remotamente.
+  \item \feito \textbf{Passar arquivos entre o PC e o celular, nos dois sentidos:}
+  aba ``Arquivos'' no celular para enviar arquivos ao PC (salvos em \texttt{Downloads\textbackslash Remoto GF})
+  e botao ``Enviar arquivo ao celular'' na janela do PC para disponibilizar arquivos que
+  o celular baixa com um toque.
+\end{itemize}
+
+\subsection{Como funciona no aplicativo}
+\begin{enumerate}
+  \item \textbf{Acessibilidade (uma unica vez):} nas configuracoes do Android, o usuario ativa
+  o servico \texttt{Remoto GF: controle pelo PC} (\texttt{ControlService}), que permite executar
+  toques, gestos e digitacao enviados pelo PC pareado.
+  \item \textbf{Transmissao de tela (\texttt{ScreenService}):} ao tocar em \textbf{Iniciar} na aba
+  ``PC controla'', o Android pede confirmacao de captura de tela (\texttt{MediaProjection}).
+  Enquanto a sessao esta ativa, uma notificacao fixa permanece visivel com o botao \textbf{Parar}.
+  \item \textbf{Janela no PC:} a janela do celular abre automaticamente no PC (ou pelo botao
+  ``Ver meu celular''), com barra de navegacao (Voltar, Inicio, Recentes, Bloquear, Print),
+  seletor de qualidade, atalho direto para o WhatsApp, menu de aplicativos do celular e envio
+  de arquivos.
+\end{enumerate}
+
+\begin{nota}
+\textbf{Observacao tecnica:} o Bluetooth nao tem banda para transmitir video de tela com
+boa qualidade. Por isso o espelhamento e a transferencia de arquivos acontecem pelo Wi-Fi
+local, protegidos pelo mesmo pareamento por PIN.
+\end{nota}
+
+% ============================================================
+\section{Resumo do estado}
+
+\begin{center}
+\begin{tabular}{@{}p{8.5cm}l@{}}
+\toprule
+\textbf{Item} & \textbf{Estado} \\
+\midrule
+Celular controla o PC (todas as funcoes) & Pronto \\
+Aplicativo Android instalavel & Pronto \\
+Instalador do PC & Pronto \\
+Compilacao automatica no GitHub & Pronto \\
+Repositorio publico & Pronto \\
+PC ve e controla o celular (com atalho WhatsApp e apps) & Pronto \\
+Passar arquivos entre PC e celular (nos dois sentidos) & Pronto \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ============================================================
+\section{Proximos passos sugeridos}
+
+\begin{enumerate}
+  \item Escolher entre Vincular ao Celular e scrcpy para o controle do celular pelo PC.
+  \item Configurar a ferramenta escolhida (passo a passo pode ser feito em seguida).
+  \item Opcional: no Remoto GF, proteger a chave de assinatura do app movendo-a para os
+  Secrets do GitHub, caso o projeto seja distribuido de forma mais ampla.
+  \item Opcional: adicionar transferencia de arquivos pela rede no Remoto GF (do PC para o
+  celular e do celular para o PC), que nao envolve controle remoto e e viavel.
+\end{enumerate}
+
+\vfill
+\begin{center}
+\color{cinza}\small Documento gerado para registro do projeto Remoto GF.
+\end{center}
+
+\end{document}

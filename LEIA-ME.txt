@@ -30,6 +30,22 @@ AVISOS NO CELULAR (notificação do Android)
 - Janela de permissão do Windows (UAC): só pode ser confirmada no próprio PC.
 - PIN errado 5 vezes, novo aparelho conectado, desligamento agendado.
 
+PC CONTROLANDO O CELULAR (novo)
+No app do celular tem a aba "Deixar o PC me controlar". Com ela, o PC vê a tela do
+celular e consegue tocar, rolar com a rodinha do mouse, digitar (inclusive Ctrl+V)
+e abrir o WhatsApp ou qualquer aplicativo instalado no celular direto pela janela do PC.
+1. No celular, ative uma vez o serviço em Acessibilidade > Remoto GF (o app te leva lá).
+2. Toque em Iniciar e confirme o pedido de transmissão de tela do Android.
+3. No PC, clique em "Ver meu celular" na janela do Remoto GF.
+Nada começa sem você confirmar. Enquanto dura, fica uma notificação fixa no celular
+com o botão Parar, e só o PC pareado por PIN recebe a imagem. Vai tudo pelo Wi-Fi.
+
+PASSAR ARQUIVOS ENTRE PC E CELULAR (novo)
+- Do celular para o PC: abra a aba "Arquivos" no celular, toque em "Escolher arquivo(s)"
+  e envie. Eles caem na pasta Downloads\Remoto GF do computador.
+- Do PC para o celular: na janela do PC, clique em "Enviar arquivo ao celular", escolha
+  os arquivos e baixe-os com um toque na aba "Arquivos" do celular.
+
 PARA DESENVOLVER
 - PC sem instalar: iniciar.bat (usa Python).
 - App Android: abra a pasta android/ no Android Studio.

@@ -52,6 +52,16 @@ def config_dir() -> Path:
     return p
 
 
+def files_dir() -> Path:
+    p = Path.home() / "Downloads" / "Remoto GF"
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        p = config_dir() / "Arquivos"
+        p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
 CONFIG_PATH = config_dir() / "config.json"
 
 DEFAULT_APPS = [
@@ -811,10 +821,15 @@ class Hub:
         self.fails = 0
         self.lock_until = 0.0
         self.clients = {}
+        self.phones = {}
+        self.phone_cb = None  # a janela do PC registra aqui para saber de celulares
+        self.file_cb = None   # a janela do PC registra aqui para avisos de arquivos
+        self.files = {}       # id -> {"id", "nome", "path", "tam", "origem", "ts"}
         self.loop = None
         self.admin = is_admin()
         self.dirty = True  # a janela do PC precisa redesenhar
         self._last_vol = None
+        self._scan_files_dir()
 
         self.inp = Input()
         self.scr = Screen()
@@ -865,7 +880,115 @@ class Hub:
 
     def features(self):
         return {"entrada": self.inp.ok, "volume": self.vol.ok, "tela": self.scr.ok,
-                "janelas": self.win.ok, "windows": IS_WIN}
+                "janelas": self.win.ok, "windows": IS_WIN, "arquivos": True}
+
+    # -------- arquivos entre PC e celular
+    def _scan_files_dir(self):
+        try:
+            for p in sorted(files_dir().iterdir(), key=lambda x: x.stat().st_mtime, reverse=True)[:50]:
+                if p.is_file():
+                    fid = secrets.token_hex(6)
+                    st = p.stat()
+                    self.files[fid] = {"id": fid, "nome": p.name, "path": p,
+                                       "tam": st.st_size, "origem": "Pasta Remoto GF", "ts": int(st.st_mtime)}
+        except Exception:
+            pass
+
+    def files_list(self):
+        out = []
+        for fid, f in list(self.files.items()):
+            p = f["path"]
+            if not p.exists():
+                self.files.pop(fid, None)
+                continue
+            out.append({"id": fid, "nome": f["nome"], "tam": f["tam"],
+                        "origem": f["origem"], "ts": f["ts"]})
+        out.sort(key=lambda x: x["ts"], reverse=True)
+        return out
+
+    def share_pc_files(self, paths):
+        added = []
+        for raw in paths:
+            p = Path(raw)
+            if not p.is_file():
+                continue
+            fid = secrets.token_hex(6)
+            st = p.stat()
+            item = {"id": fid, "nome": p.name, "path": p,
+                    "tam": st.st_size, "origem": "PC", "ts": int(time.time())}
+            self.files[fid] = item
+            added.append(item)
+        if added and self.loop:
+            nomes = ", ".join(a["nome"] for a in added[:3])
+            if len(added) > 3:
+                nomes += f" (+{len(added) - 3})"
+            asyncio.run_coroutine_threadsafe(self._announce_pc_files(nomes, added[0]["id"]), self.loop)
+        return len(added)
+
+    async def _announce_pc_files(self, nomes, first_id):
+        await self.broadcast({"t": "files", "list": self.files_list(), "pasta": str(files_dir())})
+        await self.notify("Arquivo enviado pelo PC", f"{nomes} disponível na aba Arquivos.", "ok",
+                          actions=[{"label": "Ver arquivos", "send": {"t": "files_get"}}])
+
+    async def api_files(self, req):
+        if not self.token_ok(req.query.get("t")):
+            raise web.HTTPForbidden()
+        return web.json_response({"list": self.files_list(), "pasta": str(files_dir())})
+
+    async def api_upload(self, req):
+        if not self.token_ok(req.query.get("t")):
+            raise web.HTTPForbidden()
+        sender = (req.query.get("n") or "Celular")[:40]
+        reader = await req.multipart()
+        saved = []
+        dest_dir = files_dir()
+        while True:
+            part = await reader.next()
+            if part is None:
+                break
+            if part.name != "file" or not part.filename:
+                continue
+            safe_name = Path(part.filename).name.strip() or f"arquivo_{int(time.time())}"
+            target = dest_dir / safe_name
+            stem, suf = target.stem, target.suffix
+            idx = 1
+            while target.exists():
+                target = dest_dir / f"{stem} ({idx}){suf}"
+                idx += 1
+            size = 0
+            with target.open("wb") as f:
+                while True:
+                    chunk = await part.read_chunk(256 * 1024)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    size += len(chunk)
+            fid = secrets.token_hex(6)
+            item = {"id": fid, "nome": target.name, "path": target,
+                    "tam": size, "origem": sender, "ts": int(time.time())}
+            self.files[fid] = item
+            saved.append(item)
+            log(f"Arquivo recebido de {sender}: {target.name} ({size} bytes)")
+        if saved:
+            await self.broadcast({"t": "files", "list": self.files_list(), "pasta": str(dest_dir)})
+            if self.file_cb:
+                try:
+                    self.file_cb(saved)
+                except Exception:
+                    pass
+        return web.json_response({"ok": True, "recebidos": len(saved), "list": self.files_list()})
+
+    async def api_file_download(self, req):
+        if not self.token_ok(req.query.get("t")):
+            raise web.HTTPForbidden()
+        fid = req.match_info.get("id", "")
+        item = self.files.get(fid)
+        if not item or not item["path"].exists():
+            raise web.HTTPNotFound(text="Arquivo não encontrado")
+        p = item["path"]
+        from urllib.parse import quote
+        disp = f"attachment; filename=\"{p.name.encode('ascii', 'ignore').decode() or 'arquivo'}\"; filename*=UTF-8''{quote(p.name)}"
+        return web.FileResponse(p, headers={"Content-Disposition": disp, "Cache-Control": "no-store"})
 
     # -------- descoberta: o app do celular pergunta "REMOTO_GF?" por broadcast UDP
     def discovery_thread(self):
@@ -979,6 +1102,47 @@ class Hub:
             log(f"Desconectado: {name}")
         return ws
 
+    # -------- celular sendo controlado pelo PC: recebe a tela, envia os toques
+    async def ws_phone(self, req):
+        ws = web.WebSocketResponse(heartbeat=20, max_msg_size=16 * 1024 * 1024)
+        await ws.prepare(req)
+        if not self.token_ok(req.query.get("t")):
+            await ws.close(code=4001, message=b"nao autorizado")
+            return ws
+        info = {"nome": (req.query.get("n") or "Celular")[:40], "ip": req.remote,
+                "w": int(req.query.get("w", 0) or 0), "h": int(req.query.get("h", 0) or 0),
+                "frame": None, "ws": ws, "desde": time.time()}
+        self.phones[ws] = info
+        log(f"Celular compartilhando a tela: {info['nome']} ({req.remote})")
+        if self.phone_cb:
+            try:
+                self.phone_cb("on", info)
+            except Exception:
+                pass
+        try:
+            async for msg in ws:
+                if msg.type == WSMsgType.BINARY:
+                    info["frame"] = msg.data
+                elif msg.type == WSMsgType.TEXT:
+                    try:
+                        info.update(json.loads(msg.data))
+                    except Exception:
+                        pass
+        finally:
+            self.phones.pop(ws, None)
+            log(f"Celular parou de compartilhar: {info['nome']}")
+            if self.phone_cb:
+                try:
+                    self.phone_cb("off", info)
+                except Exception:
+                    pass
+        return ws
+
+    def phone_send(self, info, obj):
+        ws = info.get("ws")
+        if ws is not None and self.loop:
+            asyncio.run_coroutine_threadsafe(self.send(ws, obj), self.loop)
+
     # -------- mensagens do celular
     async def dispatch(self, ws, d):
         t = d.get("t")
@@ -1080,6 +1244,18 @@ class Hub:
         if t == "clip_get":
             return await self.send(ws, {"t": "clip", "text": await self.run_sys(self.sys.clip_get)})
 
+        # arquivos
+        if t == "files_get":
+            return await self.send(ws, {"t": "files", "list": self.files_list(), "pasta": str(files_dir())})
+        if t == "files_open_dir":
+            await self.run_sys(self.sys.launch, str(files_dir()))
+            return await self.send(ws, {"t": "notify", "level": "ok", "title": "Pasta aberta no PC",
+                                        "msg": str(files_dir())})
+        if t == "file_del":
+            fid = str(d.get("id", ""))
+            self.files.pop(fid, None)
+            return await self.broadcast({"t": "files", "list": self.files_list(), "pasta": str(files_dir())})
+
         if t == "stats":
             return await self.send(ws, {"t": "stats", **(await self.run_sys(self.sys.stats))})
         if t == "ping":
@@ -1149,12 +1325,17 @@ class Hub:
     # -------- ciclo de vida
     async def start(self):
         self.loop = asyncio.get_running_loop()
-        app = web.Application(middlewares=[self.cors])
+        app = web.Application(middlewares=[self.cors], client_max_size=1024 * 1024 * 1024)
         app.router.add_route("OPTIONS", "/api/pair", lambda r: web.Response())
+        app.router.add_route("OPTIONS", "/api/upload", lambda r: web.Response())
         app.router.add_get("/", self.index)
         app.router.add_get("/ws", self.ws)
+        app.router.add_get("/wsphone", self.ws_phone)
         app.router.add_post("/api/pair", self.pair)
         app.router.add_get("/api/screen", self.screen)
+        app.router.add_get("/api/files", self.api_files)
+        app.router.add_post("/api/upload", self.api_upload)
+        app.router.add_get("/api/file/{id}", self.api_file_download)
         app.router.add_static("/", WEB_DIR, show_index=False)
         self.runner = web.AppRunner(app, access_log=None)
         await self.runner.setup()
@@ -1254,6 +1435,205 @@ def set_autostart(on):
 
 # ------------------------------------------------------------------ janela do PC
 
+def open_phone_window(hub, root, info):
+    """Janela no PC que mostra a tela do celular e manda os toques de volta."""
+    import tkinter as tk
+    from tkinter import filedialog
+    from PIL import Image, ImageTk
+
+    BG, FG, ACC, CARD = "#0e1014", "#e9ecf1", "#ff6b2c", "#1c2027"
+    win = tk.Toplevel(root)
+    win.title(f"Celular: {info['nome']}")
+    win.configure(bg=BG)
+    F = "Segoe UI" if IS_WIN else "Helvetica"
+
+    bar = tk.Frame(win, bg=CARD)
+    bar.pack(fill="x")
+
+    def nav(which):
+        return lambda: hub.phone_send(info, {"t": "key", "k": which})
+
+    for label, which in [("‹ Voltar", "back"), ("● Início", "home"), ("▣ Recentes", "recents"),
+                         ("🔒 Bloquear", "lock"), ("⤓ Print", "screenshot")]:
+        tk.Button(bar, text=label, command=nav(which), font=(F, 10), bg=CARD, fg=FG,
+                  activebackground=ACC, relief="flat", bd=0, padx=10, pady=8,
+                  cursor="hand2").pack(side="left", padx=2, pady=4)
+
+    tk.Label(bar, text="Qualidade", bg=CARD, fg="#8d95a4", font=(F, 9)).pack(side="left", padx=(10, 4))
+    qvar = tk.StringVar(value="Normal")
+    QMAP = {"Leve": (5, 35), "Normal": (8, 50), "Nítida": (12, 70)}
+
+    def set_q(*_):
+        fps, q = QMAP[qvar.get()]
+        hub.phone_send(info, {"t": "quality", "fps": fps, "q": q})
+
+    om = tk.OptionMenu(bar, qvar, *QMAP.keys(), command=set_q)
+    om.configure(bg=CARD, fg=FG, relief="flat", highlightthickness=0, font=(F, 9), activebackground=ACC)
+    om.pack(side="left", pady=4)
+
+    bar2 = tk.Frame(win, bg=BG)
+    bar2.pack(fill="x", padx=10, pady=(6, 0))
+
+    def open_app(pkg):
+        return lambda: hub.phone_send(info, {"t": "open_app", "pkg": pkg})
+
+    tk.Button(bar2, text="💬 WhatsApp", command=open_app("whatsapp"), font=(F, 10, "bold"),
+              bg="#25D366", fg="#0b141a", activebackground="#1da851", relief="flat", bd=0,
+              padx=12, pady=6, cursor="hand2").pack(side="left", padx=(0, 6))
+
+    def show_apps_menu(ev):
+        m = tk.Menu(win, tearoff=0, bg=CARD, fg=FG, activebackground=ACC, activeforeground="#111", font=(F, 10))
+        presets = [
+            ("WhatsApp", "whatsapp"),
+            ("WhatsApp Business", "com.whatsapp.w4b"),
+            ("Instagram", "com.instagram.android"),
+            ("YouTube", "com.google.android.youtube"),
+            ("Chrome", "com.android.chrome"),
+            ("Câmera", "camera"),
+            ("Galeria / Fotos", "gallery"),
+            ("Configurações do Android", "settings"),
+        ]
+        for nome, pkg in presets:
+            m.add_command(label=nome, command=open_app(pkg))
+        extra = info.get("apps") or []
+        if extra:
+            m.add_separator()
+            for a in extra[:35]:
+                if isinstance(a, dict) and a.get("pkg"):
+                    m.add_command(label=a.get("nome", a["pkg"]), command=open_app(a["pkg"]))
+        m.tk_popup(ev.x_root, ev.y_root)
+
+    apps_btn = tk.Button(bar2, text="📱 Abrir app ▾", font=(F, 10), bg=CARD, fg=FG,
+                         activebackground=ACC, relief="flat", bd=0, padx=10, pady=6, cursor="hand2")
+    apps_btn.bind("<Button-1>", show_apps_menu)
+    apps_btn.pack(side="left", padx=(0, 6))
+
+    def send_file_here():
+        paths = filedialog.askopenfilenames(parent=win, title="Escolher arquivo(s) para enviar ao celular")
+        if paths:
+            hub.share_pc_files(paths)
+
+    tk.Button(bar2, text="📁 Enviar arquivo", command=send_file_here, font=(F, 10), bg=CARD, fg=FG,
+              activebackground=ACC, relief="flat", bd=0, padx=10, pady=6, cursor="hand2").pack(side="left")
+
+    canvas = tk.Canvas(win, bg="#000", highlightthickness=0, width=420, height=820)
+    canvas.pack(padx=10, pady=10)
+    hint = tk.Label(win, text="Clique = toque · arraste/rodinha = rolar · segurar = pressionar · digite ou Ctrl+V",
+                    bg=BG, fg="#5d6573", font=(F, 9))
+    hint.pack(pady=(0, 8))
+
+    st = {"img": None, "fid": None, "iw": info.get("w") or 420, "ih": info.get("h") or 820,
+          "down": None, "moved": False, "lp": None, "lpfired": False, "alive": True}
+
+    def norm(e):
+        return max(0.0, min(1.0, e.x / max(1, st["iw"]))), max(0.0, min(1.0, e.y / max(1, st["ih"])))
+
+    def on_down(e):
+        canvas.focus_set()
+        st["down"] = (e.x, e.y, time.time())
+        st["moved"] = False
+        st["lpfired"] = False
+        x, y = norm(e)
+        st["lp"] = win.after(550, lambda: long_fire(x, y))
+
+    def long_fire(x, y):
+        if not st["moved"]:
+            st["lpfired"] = True
+            hub.phone_send(info, {"t": "long", "x": x, "y": y})
+
+    def on_move(e):
+        if st["down"] and (abs(e.x - st["down"][0]) + abs(e.y - st["down"][1])) > 12:
+            st["moved"] = True
+            if st["lp"]:
+                win.after_cancel(st["lp"])
+                st["lp"] = None
+
+    def on_up(e):
+        if st["lp"]:
+            win.after_cancel(st["lp"])
+            st["lp"] = None
+        if not st["down"] or st["lpfired"]:
+            st["down"] = None
+            return
+        x0, y0, t0 = st["down"]
+        st["down"] = None
+        if st["moved"]:
+            hub.phone_send(info, {"t": "swipe", "x": x0 / max(1, st["iw"]), "y": y0 / max(1, st["ih"]),
+                                  "x2": e.x / max(1, st["iw"]), "y2": e.y / max(1, st["ih"]),
+                                  "ms": int(max(80, (time.time() - t0) * 1000))})
+        else:
+            x, y = norm(e)
+            hub.phone_send(info, {"t": "tap", "x": x, "y": y})
+
+    def on_wheel(e):
+        dy = -0.22 if e.delta > 0 else 0.22
+        y1 = max(0.15, min(0.85, 0.5 + dy))
+        y2 = max(0.15, min(0.85, 0.5 - dy))
+        hub.phone_send(info, {"t": "swipe", "x": 0.5, "y": y1, "x2": 0.5, "y2": y2, "ms": 160})
+
+    canvas.bind("<ButtonPress-1>", on_down)
+    canvas.bind("<B1-Motion>", on_move)
+    canvas.bind("<ButtonRelease-1>", on_up)
+    canvas.bind("<MouseWheel>", on_wheel)
+
+    def on_key(e):
+        if (e.state & 0x4) and e.keysym.lower() == "v":
+            try:
+                txt = win.clipboard_get()
+                if txt:
+                    hub.phone_send(info, {"t": "type", "text": txt})
+            except Exception:
+                pass
+            return
+        if e.keysym == "BackSpace":
+            hub.phone_send(info, {"t": "bksp"})
+        elif e.keysym == "Escape":
+            hub.phone_send(info, {"t": "key", "k": "back"})
+        elif e.keysym == "Home":
+            hub.phone_send(info, {"t": "key", "k": "home"})
+        elif e.char and e.char.isprintable():
+            hub.phone_send(info, {"t": "type", "text": e.char})
+        elif e.keysym == "Return":
+            hub.phone_send(info, {"t": "type", "text": "\n"})
+
+    win.bind("<Key>", on_key)
+    canvas.focus_set()
+
+    def tick():
+        if not st["alive"]:
+            return
+        if info.get("ws") not in hub.phones:
+            canvas.delete("all")
+            canvas.create_text(210, 400, text="O celular parou de compartilhar.", fill="#8d95a4", font=(F, 12))
+            win.after(600, close)
+            return
+        fr = info.get("frame")
+        if fr is not None and id(fr) != st["fid"]:
+            st["fid"] = id(fr)
+            try:
+                im = Image.open(io.BytesIO(fr))
+                st["iw"], st["ih"] = im.size
+                if canvas.winfo_width() != im.width or canvas.winfo_height() != im.height:
+                    canvas.configure(width=im.width, height=im.height)
+                st["img"] = ImageTk.PhotoImage(im)
+                canvas.create_image(0, 0, anchor="nw", image=st["img"])
+            except Exception:
+                pass
+        win.after(70, tick)
+
+    def close():
+        st["alive"] = False
+        try:
+            win.destroy()
+        except Exception:
+            pass
+
+    win.protocol("WM_DELETE_WINDOW", close)
+    tick()
+    win.lift()
+    return win
+
+
 def run_gui(hub, start_hidden=False):
     import tkinter as tk
     from tkinter import messagebox
@@ -1334,6 +1714,50 @@ def run_gui(hub, start_hidden=False):
 
     mkbtn(row1, "Editar apps rápidos", edit_apps)
 
+    phone_wins = {}
+
+    def open_phone(info):
+        w = phone_wins.get(id(info))
+        if w and w.winfo_exists():
+            w.lift()
+            return
+        phone_wins[id(info)] = open_phone_window(hub, root, info)
+
+    def ver_celular():
+        if hub.phones:
+            open_phone(next(reversed(list(hub.phones.values()))))
+        else:
+            messagebox.showinfo(APP_NAME, "Nenhum celular compartilhando a tela agora.\n\n"
+                                "No app do celular, abra \"Deixar o PC me controlar\" e toque em Iniciar.")
+
+    mkbtn(row1, "Ver meu celular", ver_celular)
+    hub.phone_cb = lambda ev, info: cmds.put(("phone", ev, info))
+    hub.file_cb = lambda saved: cmds.put(("files", saved))
+
+    row_files = tk.Frame(root, bg=BG)
+    row_files.pack(fill="x", padx=16, pady=(0, 4))
+
+    def enviar_arquivo():
+        from tkinter import filedialog
+        paths = filedialog.askopenfilenames(parent=root, title="Escolher arquivo(s) para enviar ao celular")
+        if paths:
+            n = hub.share_pc_files(paths)
+            if n:
+                messagebox.showinfo(APP_NAME, f"{n} arquivo(s) disponibilizado(s) para o celular na aba Arquivos.")
+
+    def abrir_pasta_arquivos():
+        try:
+            p = files_dir()
+            if IS_WIN:
+                os.startfile(str(p))  # noqa
+            else:
+                subprocess.Popen(["xdg-open", str(p)])
+        except Exception as e:
+            messagebox.showerror(APP_NAME, str(e))
+
+    mkbtn(row_files, "Enviar arquivo ao celular", enviar_arquivo)
+    mkbtn(row_files, "Pasta de arquivos", abrir_pasta_arquivos)
+
     row2 = tk.Frame(root, bg=BG)
     row2.pack(fill="x", padx=16, pady=(0, 18))
     if IS_WIN and not hub.admin:
@@ -1390,6 +1814,20 @@ def run_gui(hub, start_hidden=False):
                     root.deiconify()
                     root.lift()
                     root.focus_force()
+                elif isinstance(c, tuple) and c[0] == "phone":
+                    _, ev, info = c
+                    if ev == "on":
+                        open_phone(info)
+                elif isinstance(c, tuple) and c[0] == "files":
+                    _, saved = c
+                    nomes = ", ".join(s["nome"] for s in saved[:2])
+                    if len(saved) > 2:
+                        nomes += f" (+{len(saved) - 2})"
+                    if tray:
+                        try:
+                            tray.notify(f"Salvo em Downloads\\Remoto GF: {nomes}", "Arquivo recebido do celular")
+                        except Exception:
+                            pass
         except queue.Empty:
             pass
         if hub.dirty:
