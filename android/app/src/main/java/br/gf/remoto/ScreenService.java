@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
 import android.hardware.display.DisplayManager;
@@ -65,10 +66,11 @@ public class ScreenService extends Service {
     private OkHttpClient http;
     private WebSocket ws;
 
-    private int outW, outH, dpi;
+    private int outW, outH, realW, realH, dpi;
     private long lastSent = 0;
-    private volatile int fps = 7, quality = 45, maxW = 420;
+    private volatile int fps = 22, quality = 58, maxW = 620;
     private volatile boolean paused = false;
+    private final ByteArrayOutputStream jpegOut = new ByteArrayOutputStream(65536);
 
     @Override
     public void onCreate() {
@@ -124,16 +126,53 @@ public class ScreenService extends Service {
         return START_STICKY;
     }
 
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        if (running && handler != null) {
+            handler.post(this::rebuildDisplayIfNeeded);
+        }
+    }
+
+    private void rebuildDisplayIfNeeded() {
+        if (projection == null) return;
+        WindowManager wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
+        DisplayMetrics m = new DisplayMetrics();
+        wm.getDefaultDisplay().getRealMetrics(m);
+        int shortSide = Math.min(m.widthPixels, m.heightPixels);
+        float scale = Math.min(1f, (float) maxW / Math.max(1, shortSide));
+        int nw = Math.max(2, (Math.round(m.widthPixels * scale) / 2) * 2);
+        int nh = Math.max(2, (Math.round(m.heightPixels * scale) / 2) * 2);
+        realW = m.widthPixels;
+        realH = m.heightPixels;
+        if (nw == outW && nh == outH && vdisplay != null) return;
+        setupDisplay();
+        if (ws != null) {
+            try {
+                JSONObject o = new JSONObject();
+                o.put("w", outW);
+                o.put("h", outH);
+                ws.send(o.toString());
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
     private void setupDisplay() {
+        try { if (vdisplay != null) vdisplay.release(); } catch (Exception ignored) {}
+        try { if (reader != null) reader.close(); } catch (Exception ignored) {}
         WindowManager wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
         DisplayMetrics m = new DisplayMetrics();
         wm.getDefaultDisplay().getRealMetrics(m);
         dpi = m.densityDpi;
-        float scale = Math.min(1f, (float) maxW / m.widthPixels);
+        realW = m.widthPixels;
+        realH = m.heightPixels;
+        int shortSide = Math.min(m.widthPixels, m.heightPixels);
+        float scale = Math.min(1f, (float) maxW / Math.max(1, shortSide));
         outW = Math.max(2, (Math.round(m.widthPixels * scale) / 2) * 2);
         outH = Math.max(2, (Math.round(m.heightPixels * scale) / 2) * 2);
 
-        reader = ImageReader.newInstance(outW, outH, PixelFormat.RGBA_8888, 2);
+        reader = ImageReader.newInstance(outW, outH, PixelFormat.RGBA_8888, 3);
         reader.setOnImageAvailableListener(this::onFrame, handler);
         vdisplay = projection.createVirtualDisplay("remotogf", outW, outH, dpi,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader.getSurface(), null, handler);
@@ -145,7 +184,8 @@ public class ScreenService extends Service {
             img = r.acquireLatestImage();
             if (img == null || paused || ws == null) return;
             long now = System.currentTimeMillis();
-            if (now - lastSent < 1000 / fps) return;
+            if (now - lastSent < (1000 / Math.max(1, fps))) return;
+            if (ws.queueSize() > 384 * 1024) return; // evita atraso acumulado no Wi-Fi
             lastSent = now;
 
             Image.Plane plane = img.getPlanes()[0];
@@ -157,11 +197,11 @@ public class ScreenService extends Service {
             bmp.copyPixelsFromBuffer(buf);
             Bitmap crop = (rowPadding == 0) ? bmp : Bitmap.createBitmap(bmp, 0, 0, outW, outH);
 
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            crop.compress(Bitmap.CompressFormat.JPEG, quality, out);
+            jpegOut.reset();
+            crop.compress(Bitmap.CompressFormat.JPEG, quality, jpegOut);
             if (crop != bmp) crop.recycle();
             bmp.recycle();
-            ws.send(ByteString.of(out.toByteArray()));
+            ws.send(ByteString.of(jpegOut.toByteArray()));
         } catch (Throwable ignored) {
         } finally {
             if (img != null) img.close();
@@ -253,17 +293,22 @@ public class ScreenService extends Service {
             String t = d.optString("t");
             ControlService c = ControlService.instance;
             switch (t) {
-                case "tap": if (c != null) c.tap(px(d, "x", outW), px(d, "y", outH)); break;
-                case "long": if (c != null) c.longPress(px(d, "x", outW), px(d, "y", outH)); break;
-                case "swipe": if (c != null) c.swipe(px(d, "x", outW), px(d, "y", outH),
-                        px(d, "x2", outW), px(d, "y2", outH), d.optInt("ms", 200)); break;
+                case "tap": if (c != null) c.tap(px(d, "x", realW), px(d, "y", realH)); break;
+                case "long": if (c != null) c.longPress(px(d, "x", realW), px(d, "y", realH)); break;
+                case "swipe": if (c != null) c.swipe(px(d, "x", realW), px(d, "y", realH),
+                        px(d, "x2", realW), px(d, "y2", realH), d.optInt("ms", 200)); break;
                 case "key": if (c != null) c.global(d.optString("k")); break;
                 case "type": if (c != null) c.type(d.optString("text")); break;
                 case "bksp": if (c != null) c.backspace(); break;
                 case "open_app": launchPhoneApp(d.optString("pkg")); break;
                 case "quality":
-                    fps = Math.max(2, Math.min(d.optInt("fps", fps), 20));
-                    quality = Math.max(20, Math.min(d.optInt("q", quality), 85));
+                    fps = Math.max(2, Math.min(d.optInt("fps", fps), 35));
+                    quality = Math.max(20, Math.min(d.optInt("q", quality), 90));
+                    int newW = d.optInt("w", maxW);
+                    if (newW >= 320 && newW <= 1280 && newW != maxW) {
+                        maxW = newW;
+                        if (handler != null) handler.post(this::rebuildDisplayIfNeeded);
+                    }
                     break;
                 case "pause": paused = d.optBoolean("on", false); break;
                 case "stop": stopEverything(); break;

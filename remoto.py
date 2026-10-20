@@ -1436,7 +1436,7 @@ def set_autostart(on):
 # ------------------------------------------------------------------ janela do PC
 
 def open_phone_window(hub, root, info):
-    """Janela no PC que mostra a tela do celular e manda os toques de volta."""
+    """Janela no PC que mostra a tela do celular (fluida, redimensionável e com tela cheia) e manda os toques de volta."""
     import tkinter as tk
     from tkinter import filedialog
     from PIL import Image, ImageTk
@@ -1445,7 +1445,14 @@ def open_phone_window(hub, root, info):
     win = tk.Toplevel(root)
     win.title(f"Celular: {info['nome']}")
     win.configure(bg=BG)
+    win.resizable(True, True)
     F = "Segoe UI" if IS_WIN else "Helvetica"
+
+    scr_h = max(600, win.winfo_screenheight())
+    init_h = max(560, min(920, int(scr_h * 0.78)))
+    init_w = max(380, int(init_h * 0.48))
+    win.geometry(f"{init_w + 24}x{init_h + 135}")
+    win.minsize(340, 520)
 
     bar = tk.Frame(win, bg=CARD)
     bar.pack(fill="x")
@@ -1456,20 +1463,35 @@ def open_phone_window(hub, root, info):
     for label, which in [("‹ Voltar", "back"), ("● Início", "home"), ("▣ Recentes", "recents"),
                          ("🔒 Bloquear", "lock"), ("⤓ Print", "screenshot")]:
         tk.Button(bar, text=label, command=nav(which), font=(F, 10), bg=CARD, fg=FG,
-                  activebackground=ACC, relief="flat", bd=0, padx=10, pady=8,
+                  activebackground=ACC, relief="flat", bd=0, padx=9, pady=7,
                   cursor="hand2").pack(side="left", padx=2, pady=4)
 
-    tk.Label(bar, text="Qualidade", bg=CARD, fg="#8d95a4", font=(F, 9)).pack(side="left", padx=(10, 4))
-    qvar = tk.StringVar(value="Normal")
-    QMAP = {"Leve": (5, 35), "Normal": (8, 50), "Nítida": (12, 70)}
+    tk.Label(bar, text="Modo", bg=CARD, fg="#8d95a4", font=(F, 9)).pack(side="left", padx=(8, 3))
+    qvar = tk.StringVar(value="Fluida (24 FPS)")
+    QMAP = {
+        "Leve (10 FPS)": (10, 42, 420),
+        "Normal (16 FPS)": (16, 52, 540),
+        "Fluida (24 FPS)": (24, 60, 640),
+        "Ultra HD (30 FPS)": (30, 72, 860),
+    }
 
     def set_q(*_):
-        fps, q = QMAP[qvar.get()]
-        hub.phone_send(info, {"t": "quality", "fps": fps, "q": q})
+        fps, q, w = QMAP[qvar.get()]
+        hub.phone_send(info, {"t": "quality", "fps": fps, "q": q, "w": w})
 
     om = tk.OptionMenu(bar, qvar, *QMAP.keys(), command=set_q)
     om.configure(bg=CARD, fg=FG, relief="flat", highlightthickness=0, font=(F, 9), activebackground=ACC)
     om.pack(side="left", pady=4)
+
+    fs_state = {"on": False}
+
+    def toggle_fs(*_):
+        fs_state["on"] = not fs_state["on"]
+        win.attributes("-fullscreen", fs_state["on"])
+
+    tk.Button(bar, text="⛶ Tela cheia", command=toggle_fs, font=(F, 9), bg=CARD, fg=FG,
+              activebackground=ACC, relief="flat", bd=0, padx=8, pady=7,
+              cursor="hand2").pack(side="right", padx=6, pady=4)
 
     bar2 = tk.Frame(win, bg=BG)
     bar2.pack(fill="x", padx=10, pady=(6, 0))
@@ -1498,7 +1520,7 @@ def open_phone_window(hub, root, info):
         extra = info.get("apps") or []
         if extra:
             m.add_separator()
-            for a in extra[:35]:
+            for a in sorted(extra, key=lambda x: str(x.get("nome", "")).lower())[:45]:
                 if isinstance(a, dict) and a.get("pkg"):
                     m.add_command(label=a.get("nome", a["pkg"]), command=open_app(a["pkg"]))
         m.tk_popup(ev.x_root, ev.y_root)
@@ -1516,24 +1538,41 @@ def open_phone_window(hub, root, info):
     tk.Button(bar2, text="📁 Enviar arquivo", command=send_file_here, font=(F, 10), bg=CARD, fg=FG,
               activebackground=ACC, relief="flat", bd=0, padx=10, pady=6, cursor="hand2").pack(side="left")
 
-    canvas = tk.Canvas(win, bg="#000", highlightthickness=0, width=420, height=820)
-    canvas.pack(padx=10, pady=10)
-    hint = tk.Label(win, text="Clique = toque · arraste/rodinha = rolar · segurar = pressionar · digite ou Ctrl+V",
-                    bg=BG, fg="#5d6573", font=(F, 9))
-    hint.pack(pady=(0, 8))
+    # Barra inferior rápida de texto (ideal para digitar com acentos/frases no WhatsApp)
+    bottom = tk.Frame(win, bg=BG)
+    bottom.pack(side="bottom", fill="x", padx=10, pady=(2, 8))
+    txt_in = tk.Entry(bottom, bg=CARD, fg=FG, insertbackground=FG, relief="flat", font=(F, 10))
+    txt_in.pack(side="left", fill="x", expand=True, ipady=6, padx=(0, 6))
 
-    st = {"img": None, "fid": None, "iw": info.get("w") or 420, "ih": info.get("h") or 820,
+    def send_txt(*_):
+        v = txt_in.get()
+        if v:
+            hub.phone_send(info, {"t": "type", "text": v})
+            txt_in.delete(0, "end")
+        else:
+            hub.phone_send(info, {"t": "type", "text": "\n"})
+
+    txt_in.bind("<Return>", send_txt)
+    tk.Button(bottom, text="Enviar texto", command=send_txt, font=(F, 9, "bold"), bg=ACC, fg="#111",
+              activebackground=ACC, relief="flat", bd=0, padx=12, pady=6, cursor="hand2").pack(side="right")
+
+    canvas = tk.Canvas(win, bg="#000", highlightthickness=0)
+    canvas.pack(fill="both", expand=True, padx=10, pady=6)
+
+    st = {"img": None, "raw": None, "fid": None, "ox": 0, "oy": 0, "dw": init_w, "dh": init_h,
           "down": None, "moved": False, "lp": None, "lpfired": False, "alive": True}
 
-    def norm(e):
-        return max(0.0, min(1.0, e.x / max(1, st["iw"]))), max(0.0, min(1.0, e.y / max(1, st["ih"])))
+    def norm_xy(px, py):
+        rx = (px - st["ox"]) / max(1, st["dw"])
+        ry = (py - st["oy"]) / max(1, st["dh"])
+        return max(0.0, min(1.0, rx)), max(0.0, min(1.0, ry))
 
     def on_down(e):
         canvas.focus_set()
         st["down"] = (e.x, e.y, time.time())
         st["moved"] = False
         st["lpfired"] = False
-        x, y = norm(e)
+        x, y = norm_xy(e.x, e.y)
         st["lp"] = win.after(550, lambda: long_fire(x, y))
 
     def long_fire(x, y):
@@ -1542,7 +1581,7 @@ def open_phone_window(hub, root, info):
             hub.phone_send(info, {"t": "long", "x": x, "y": y})
 
     def on_move(e):
-        if st["down"] and (abs(e.x - st["down"][0]) + abs(e.y - st["down"][1])) > 12:
+        if st["down"] and (abs(e.x - st["down"][0]) + abs(e.y - st["down"][1])) > 10:
             st["moved"] = True
             if st["lp"]:
                 win.after_cancel(st["lp"])
@@ -1558,25 +1597,49 @@ def open_phone_window(hub, root, info):
         x0, y0, t0 = st["down"]
         st["down"] = None
         if st["moved"]:
-            hub.phone_send(info, {"t": "swipe", "x": x0 / max(1, st["iw"]), "y": y0 / max(1, st["ih"]),
-                                  "x2": e.x / max(1, st["iw"]), "y2": e.y / max(1, st["ih"]),
-                                  "ms": int(max(80, (time.time() - t0) * 1000))})
+            nx0, ny0 = norm_xy(x0, y0)
+            nx1, ny1 = norm_xy(e.x, e.y)
+            hub.phone_send(info, {"t": "swipe", "x": nx0, "y": ny0, "x2": nx1, "y2": ny1,
+                                  "ms": int(max(70, min(600, (time.time() - t0) * 1000)))})
         else:
-            x, y = norm(e)
+            x, y = norm_xy(e.x, e.y)
             hub.phone_send(info, {"t": "tap", "x": x, "y": y})
 
     def on_wheel(e):
         dy = -0.22 if e.delta > 0 else 0.22
         y1 = max(0.15, min(0.85, 0.5 + dy))
         y2 = max(0.15, min(0.85, 0.5 - dy))
-        hub.phone_send(info, {"t": "swipe", "x": 0.5, "y": y1, "x2": 0.5, "y2": y2, "ms": 160})
+        hub.phone_send(info, {"t": "swipe", "x": 0.5, "y": y1, "x2": 0.5, "y2": y2, "ms": 150})
 
     canvas.bind("<ButtonPress-1>", on_down)
     canvas.bind("<B1-Motion>", on_move)
     canvas.bind("<ButtonRelease-1>", on_up)
     canvas.bind("<MouseWheel>", on_wheel)
 
+    def render_current():
+        im = st["raw"]
+        if im is None:
+            return
+        cw = max(60, canvas.winfo_width())
+        ch = max(60, canvas.winfo_height())
+        scale = min(cw / max(1, im.width), ch / max(1, im.height))
+        dw = max(1, int(im.width * scale))
+        dh = max(1, int(im.height * scale))
+        ox = (cw - dw) // 2
+        oy = (ch - dh) // 2
+        st["ox"], st["oy"], st["dw"], st["dh"] = ox, oy, dw, dh
+        resized = im if (dw == im.width and dh == im.height) else im.resize((dw, dh), Image.BILINEAR)
+        st["img"] = ImageTk.PhotoImage(resized)
+        canvas.delete("all")
+        canvas.create_image(ox, oy, anchor="nw", image=st["img"])
+
+    canvas.bind("<Configure>", lambda _e: render_current())
+
     def on_key(e):
+        if e.keysym == "F11":
+            return toggle_fs()
+        if win.focus_get() is txt_in:
+            return
         if (e.state & 0x4) and e.keysym.lower() == "v":
             try:
                 txt = win.clipboard_get()
@@ -1588,7 +1651,10 @@ def open_phone_window(hub, root, info):
         if e.keysym == "BackSpace":
             hub.phone_send(info, {"t": "bksp"})
         elif e.keysym == "Escape":
-            hub.phone_send(info, {"t": "key", "k": "back"})
+            if fs_state["on"]:
+                toggle_fs()
+            else:
+                hub.phone_send(info, {"t": "key", "k": "back"})
         elif e.keysym == "Home":
             hub.phone_send(info, {"t": "key", "k": "home"})
         elif e.char and e.char.isprintable():
@@ -1604,22 +1670,19 @@ def open_phone_window(hub, root, info):
             return
         if info.get("ws") not in hub.phones:
             canvas.delete("all")
-            canvas.create_text(210, 400, text="O celular parou de compartilhar.", fill="#8d95a4", font=(F, 12))
+            canvas.create_text(max(120, canvas.winfo_width() // 2), max(120, canvas.winfo_height() // 2),
+                               text="O celular parou de compartilhar.", fill="#8d95a4", font=(F, 12))
             win.after(600, close)
             return
         fr = info.get("frame")
         if fr is not None and id(fr) != st["fid"]:
             st["fid"] = id(fr)
             try:
-                im = Image.open(io.BytesIO(fr))
-                st["iw"], st["ih"] = im.size
-                if canvas.winfo_width() != im.width or canvas.winfo_height() != im.height:
-                    canvas.configure(width=im.width, height=im.height)
-                st["img"] = ImageTk.PhotoImage(im)
-                canvas.create_image(0, 0, anchor="nw", image=st["img"])
+                st["raw"] = Image.open(io.BytesIO(fr))
+                render_current()
             except Exception:
                 pass
-        win.after(70, tick)
+        win.after(15, tick)
 
     def close():
         st["alive"] = False
