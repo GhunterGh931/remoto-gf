@@ -14,10 +14,12 @@ import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
+import android.media.AudioManager;
 import android.media.Image;
 import android.media.ImageReader;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
+import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -67,9 +69,10 @@ public class ScreenService extends Service {
     private WebSocket ws;
 
     private int outW, outH, realW, realH, dpi;
-    private long lastSent = 0;
+    private long lastSent = 0, lastBatSent = 0;
     private volatile int fps = 22, quality = 58, maxW = 620;
-    private volatile boolean paused = false;
+    private volatile boolean paused = false, stoppedByUser = false;
+    private String lastHost, lastToken, lastName;
     private final ByteArrayOutputStream jpegOut = new ByteArrayOutputStream(65536);
 
     @Override
@@ -87,14 +90,19 @@ public class ScreenService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null || ACTION_STOP.equals(intent.getAction())) {
+            stoppedByUser = true;
             stopEverything();
             return START_NOT_STICKY;
         }
+        stoppedByUser = false;
         startForeground(NOTIF, buildNotification());
 
         String host = intent.getStringExtra("host");
         String token = intent.getStringExtra("token");
         String name = intent.getStringExtra("name");
+        lastHost = host;
+        lastToken = token;
+        lastName = name;
         int code = intent.getIntExtra("code", -1);
         Intent data = intent.getParcelableExtra("data");
         if (host == null || data == null) {
@@ -202,17 +210,63 @@ public class ScreenService extends Service {
             if (crop != bmp) crop.recycle();
             bmp.recycle();
             ws.send(ByteString.of(jpegOut.toByteArray()));
+            if (now - lastBatSent > 10000) {
+                lastBatSent = now;
+                sendPhoneStatus(ws);
+            }
         } catch (Throwable ignored) {
         } finally {
             if (img != null) img.close();
         }
     }
 
+    private void sendPhoneStatus(WebSocket w) {
+        try {
+            BatteryManager bm = (BatteryManager) getSystemService(Context.BATTERY_SERVICE);
+            if (bm == null || w == null) return;
+            int bat = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+            boolean chg = Build.VERSION.SDK_INT >= 23 && bm.isCharging();
+            JSONObject o = new JSONObject();
+            o.put("bat", bat);
+            o.put("chg", chg);
+            w.send(o.toString());
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void adjustPhoneVolume(String dir) {
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (am == null) return;
+            int op = AudioManager.ADJUST_SAME;
+            if ("up".equals(dir)) op = AudioManager.ADJUST_RAISE;
+            else if ("down".equals(dir)) op = AudioManager.ADJUST_LOWER;
+            else if ("mute".equals(dir)) op = AudioManager.ADJUST_TOGGLE_MUTE;
+            am.adjustStreamVolume(AudioManager.STREAM_MUSIC, op, AudioManager.FLAG_SHOW_UI);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void scheduleReconnect() {
+        if (stoppedByUser || !running || handler == null || lastHost == null) {
+            stopEverything();
+            return;
+        }
+        handler.postDelayed(() -> {
+            if (!stoppedByUser && running && projection != null) {
+                connect(lastHost, lastToken, lastName);
+            }
+        }, 2000);
+    }
+
     private void connect(String host, String token, String name) {
-        http = new OkHttpClient.Builder()
-                .pingInterval(20, TimeUnit.SECONDS)
-                .readTimeout(0, TimeUnit.MILLISECONDS)
-                .build();
+        try { if (ws != null) ws.cancel(); } catch (Exception ignored) {}
+        if (http == null) {
+            http = new OkHttpClient.Builder()
+                    .pingInterval(15, TimeUnit.SECONDS)
+                    .readTimeout(0, TimeUnit.MILLISECONDS)
+                    .build();
+        }
         String url = "ws://" + host + "/wsphone?t=" + enc(token) + "&n=" + enc(name)
                 + "&w=" + outW + "&h=" + outH;
         Request req = new Request.Builder().url(url).build();
@@ -220,6 +274,7 @@ public class ScreenService extends Service {
             @Override
             public void onOpen(WebSocket w, Response resp) {
                 sendInstalledApps(w);
+                sendPhoneStatus(w);
             }
 
             @Override
@@ -229,12 +284,17 @@ public class ScreenService extends Service {
 
             @Override
             public void onFailure(WebSocket w, Throwable t, @Nullable Response resp) {
-                stopEverything();
+                scheduleReconnect();
             }
 
             @Override
             public void onClosed(WebSocket w, int code, String reason) {
-                stopEverything();
+                if (code == 4001) {
+                    stoppedByUser = true;
+                    stopEverything();
+                } else {
+                    scheduleReconnect();
+                }
             }
         });
     }
@@ -301,6 +361,7 @@ public class ScreenService extends Service {
                 case "type": if (c != null) c.type(d.optString("text")); break;
                 case "bksp": if (c != null) c.backspace(); break;
                 case "open_app": launchPhoneApp(d.optString("pkg")); break;
+                case "vol": adjustPhoneVolume(d.optString("d")); break;
                 case "quality":
                     fps = Math.max(2, Math.min(d.optInt("fps", fps), 35));
                     quality = Math.max(20, Math.min(d.optInt("q", quality), 90));
@@ -311,7 +372,7 @@ public class ScreenService extends Service {
                     }
                     break;
                 case "pause": paused = d.optBoolean("on", false); break;
-                case "stop": stopEverything(); break;
+                case "stop": stoppedByUser = true; stopEverything(); break;
             }
         } catch (Exception ignored) {
         }

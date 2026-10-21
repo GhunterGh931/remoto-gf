@@ -102,6 +102,31 @@ def save_config(cfg: dict):
     CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def set_password(cfg: dict, raw_pw: str):
+    import hashlib
+    pw = (raw_pw or "").strip()
+    if not pw:
+        cfg.pop("senha_hash", None)
+        cfg.pop("senha_salt", None)
+    else:
+        salt = secrets.token_hex(16)
+        dk = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), salt.encode("ascii"), 200_000)
+        cfg["senha_salt"] = salt
+        cfg["senha_hash"] = dk.hex()
+    save_config(cfg)
+
+
+def check_password(cfg: dict, raw_pw: str) -> bool:
+    import hashlib
+    pw = (raw_pw or "").strip()
+    salt = cfg.get("senha_salt")
+    saved = cfg.get("senha_hash")
+    if not pw or not salt or not saved:
+        return False
+    dk = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), str(salt).encode("ascii"), 200_000)
+    return secrets.compare_digest(dk.hex(), str(saved))
+
+
 def log(*a):
     try:
         print(time.strftime("[%H:%M:%S]"), *a, flush=True)
@@ -764,6 +789,17 @@ def lan_ip():
         s.close()
 
 
+def mac_addr() -> str:
+    try:
+        import uuid
+        n = uuid.getnode()
+        if (n >> 40) % 2 == 0:
+            return ":".join(f"{(n >> ele) & 0xff:02X}" for ele in range(40, -1, -8))
+    except Exception:
+        pass
+    return ""
+
+
 def ensure_cert():
     """Certificado próprio para o modo HTTPS (libera giroscópio e tela ligada no celular)."""
     try:
@@ -822,13 +858,16 @@ class Hub:
         self.lock_until = 0.0
         self.clients = {}
         self.phones = {}
+        self.cams = {}
         self.phone_cb = None  # a janela do PC registra aqui para saber de celulares
+        self.cam_cb = None    # a janela do PC registra aqui para câmera do celular
         self.file_cb = None   # a janela do PC registra aqui para avisos de arquivos
         self.files = {}       # id -> {"id", "nome", "path", "tam", "origem", "ts"}
         self.loop = None
         self.admin = is_admin()
         self.dirty = True  # a janela do PC precisa redesenhar
         self._last_vol = None
+        self._last_clip = None
         self._scan_files_dir()
 
         self.inp = Input()
@@ -1000,7 +1039,7 @@ class Hub:
             log("Busca automática indisponível:", e)
             return
         resp = json.dumps({"app": "RemotoGF", "nome": platform.node(), "porta": self.port,
-                           "versao": VERSION}).encode()
+                           "versao": VERSION, "mac": mac_addr()}).encode()
         while True:
             try:
                 data, addr = sock.recvfrom(256)
@@ -1032,21 +1071,25 @@ class Hub:
             data = await req.json()
         except Exception:
             data = {}
-        pin = "".join(ch for ch in str(data.get("pin", "")) if ch.isdigit())
+        raw = str(data.get("pin", "")).strip()
+        digits = "".join(ch for ch in raw if ch.isdigit())
         name = str(data.get("nome") or "Celular")[:40]
-        if pin and secrets.compare_digest(pin, self.pin):
+        pin_ok = bool(digits) and len(digits) == 6 and secrets.compare_digest(digits, self.pin)
+        pw_ok = check_password(self.cfg, raw)
+        if pin_ok or pw_ok:
             self.fails = 0
-            log(f"Aparelho pareado: {name} ({req.remote})")
-            await self.notify("Novo aparelho", f"{name} foi conectado a este PC.", "info")
+            modo = "senha fixa" if pw_ok else "PIN"
+            log(f"Aparelho conectado ({modo}): {name} ({req.remote})")
+            await self.notify("Novo acesso", f"{name} conectou a este PC via {modo}.", "info")
             return web.json_response({"token": self.cfg["token"]})
         self.fails += 1
-        log(f"PIN errado vindo de {req.remote}")
+        log(f"PIN/senha incorretos vindos de {req.remote}")
         if self.fails >= 5:
             self.fails = 0
             self.lock_until = now + 60
-            await self.notify("Tentativa de acesso", f"Alguém em {req.remote} errou o PIN 5 vezes. "
-                              "O pareamento ficou bloqueado por 1 minuto.", "warn", sticky=True)
-        return web.json_response({"erro": "PIN incorreto. Confira o número na janela do PC."}, status=403)
+            await self.notify("Tentativa de acesso", f"Alguém em {req.remote} errou o PIN/senha 5 vezes. "
+                              "O acesso ficou bloqueado por 1 minuto.", "warn", sticky=True)
+        return web.json_response({"erro": "Senha ou PIN incorreto."}, status=403)
 
     async def screen(self, req):
         if not self.token_ok(req.query.get("t")):
@@ -1079,6 +1122,7 @@ class Hub:
         await self.send(ws, {
             "t": "hello", "pc": platform.node(), "versao": VERSION, "admin": self.admin,
             "recursos": self.features(), "monitores": len(mons) or 1, "https_port": self.https_port,
+            "mac": mac_addr(),
             "apps": [a.get("nome", "?") for a in self.cfg.get("apps", [])],
         })
         if not self.inp.ok:
@@ -1142,6 +1186,41 @@ class Hub:
         ws = info.get("ws")
         if ws is not None and self.loop:
             asyncio.run_coroutine_threadsafe(self.send(ws, obj), self.loop)
+
+    # -------- câmera do celular no PC
+    async def ws_cam(self, req):
+        ws = web.WebSocketResponse(heartbeat=20, max_msg_size=16 * 1024 * 1024)
+        await ws.prepare(req)
+        if not self.token_ok(req.query.get("t")):
+            await ws.close(code=4001, message=b"nao autorizado")
+            return ws
+        info = {"nome": (req.query.get("n") or "Celular")[:40], "ip": req.remote,
+                "frame": None, "ws": ws, "desde": time.time()}
+        self.cams[ws] = info
+        log(f"Câmera do celular conectada: {info['nome']} ({req.remote})")
+        if self.cam_cb:
+            try:
+                self.cam_cb("on", info)
+            except Exception:
+                pass
+        try:
+            async for msg in ws:
+                if msg.type == WSMsgType.BINARY:
+                    info["frame"] = msg.data
+                elif msg.type == WSMsgType.TEXT:
+                    try:
+                        info.update(json.loads(msg.data))
+                    except Exception:
+                        pass
+        finally:
+            self.cams.pop(ws, None)
+            log(f"Câmera do celular desconectada: {info['nome']}")
+            if self.cam_cb:
+                try:
+                    self.cam_cb("off", info)
+                except Exception:
+                    pass
+        return ws
 
     # -------- mensagens do celular
     async def dispatch(self, ws, d):
@@ -1238,9 +1317,17 @@ class Hub:
 
         # área de transferência
         if t == "clip_set":
-            await self.run_sys(self.sys.clip_set, str(d.get("text", "")))
+            txt = str(d.get("text", ""))
+            self._last_clip = txt
+            await self.run_sys(self.sys.clip_set, txt)
             return await self.send(ws, {"t": "notify", "level": "ok", "title": "Copiado no PC",
                                         "msg": "Agora é só dar Ctrl+V lá."})
+        if t == "clip_sync":
+            txt = str(d.get("text", ""))
+            if txt and txt != self._last_clip:
+                self._last_clip = txt
+                await self.run_sys(self.sys.clip_set, txt)
+            return
         if t == "clip_get":
             return await self.send(ws, {"t": "clip", "text": await self.run_sys(self.sys.clip_get)})
 
@@ -1261,12 +1348,18 @@ class Hub:
         if t == "ping":
             return await self.send(ws, {"t": "pong", "ts": d.get("ts")})
 
-    # -------- vigia: volume, janelas, pedidos de autorização
+    # -------- vigia: volume, janelas, área de transferência, pedidos de autorização
     def watch_tick(self):
-        out = {"vol": None, "fg": None, "uac": False, "wins": None}
+        out = {"vol": None, "fg": None, "uac": False, "wins": None, "clip": None}
         try:
             v = self.vol.get()
             out["vol"] = (v["v"], v["m"])
+        except Exception:
+            pass
+        try:
+            c = self.sys.clip_get()
+            if c and len(c) <= 20000:
+                out["clip"] = c
         except Exception:
             pass
         if IS_WIN:
@@ -1296,6 +1389,10 @@ class Hub:
             if st["vol"] is not None and st["vol"] != self._last_vol:
                 self._last_vol = st["vol"]
                 await self.broadcast({"t": "vol", "v": st["vol"][0], "m": st["vol"][1]})
+            if st["clip"] and st["clip"] != self._last_clip:
+                if self._last_clip is not None:
+                    await self.broadcast({"t": "clip_sync", "text": st["clip"]})
+                self._last_clip = st["clip"]
             if st["wins"] is not None:
                 sig = [(w["h"], w["titulo"], w["min"], w["ativo"]) for w in st["wins"]]
                 if sig != last_wins:
@@ -1331,6 +1428,7 @@ class Hub:
         app.router.add_get("/", self.index)
         app.router.add_get("/ws", self.ws)
         app.router.add_get("/wsphone", self.ws_phone)
+        app.router.add_get("/wscam", self.ws_cam)
         app.router.add_post("/api/pair", self.pair)
         app.router.add_get("/api/screen", self.screen)
         app.router.add_get("/api/files", self.api_files)
@@ -1536,7 +1634,17 @@ def open_phone_window(hub, root, info):
             hub.share_pc_files(paths)
 
     tk.Button(bar2, text="📁 Enviar arquivo", command=send_file_here, font=(F, 10), bg=CARD, fg=FG,
-              activebackground=ACC, relief="flat", bd=0, padx=10, pady=6, cursor="hand2").pack(side="left")
+              activebackground=ACC, relief="flat", bd=0, padx=10, pady=6, cursor="hand2").pack(side="left", padx=(0, 6))
+
+    tk.Button(bar2, text="🔉-", command=lambda: hub.phone_send(info, {"t": "vol", "d": "down"}),
+              font=(F, 9), bg=CARD, fg=FG, activebackground=ACC, relief="flat", bd=0,
+              padx=8, pady=6, cursor="hand2").pack(side="left", padx=(0, 2))
+    tk.Button(bar2, text="🔊+", command=lambda: hub.phone_send(info, {"t": "vol", "d": "up"}),
+              font=(F, 9), bg=CARD, fg=FG, activebackground=ACC, relief="flat", bd=0,
+              padx=8, pady=6, cursor="hand2").pack(side="left", padx=(0, 6))
+
+    bat_lbl = tk.Label(bar2, text="", bg=BG, fg="#8d95a4", font=(F, 9, "bold"))
+    bat_lbl.pack(side="right", padx=4)
 
     # Barra inferior rápida de texto (ideal para digitar com acentos/frases no WhatsApp)
     bottom = tk.Frame(win, bg=BG)
@@ -1668,12 +1776,28 @@ def open_phone_window(hub, root, info):
     def tick():
         if not st["alive"]:
             return
+        nonlocal info
         if info.get("ws") not in hub.phones:
-            canvas.delete("all")
-            canvas.create_text(max(120, canvas.winfo_width() // 2), max(120, canvas.winfo_height() // 2),
-                               text="O celular parou de compartilhar.", fill="#8d95a4", font=(F, 12))
-            win.after(600, close)
+            # se o celular reconectou após oscilação do Wi-Fi, reatacha automaticamente
+            for pinfo in reversed(list(hub.phones.values())):
+                if pinfo.get("nome") == info.get("nome") or len(hub.phones) == 1:
+                    info = pinfo
+                    break
+        if info.get("ws") not in hub.phones:
+            st["lost"] = st.get("lost", 0) + 1
+            if st["lost"] == 1:
+                canvas.create_text(max(120, canvas.winfo_width() // 2), 30,
+                                   text="Reconectando ao celular...", fill="#ffb547", font=(F, 11, "bold"), tags="reconn")
+            if st["lost"] > 800:  # ~12 segundos sem reconectar
+                close()
+                return
+            win.after(15, tick)
             return
+        if st.get("lost"):
+            st["lost"] = 0
+            canvas.delete("reconn")
+        if info.get("bat") is not None:
+            bat_lbl.configure(text=f"🔋 {info['bat']}%{' ⚡' if info.get('chg') else ''}")
         fr = info.get("frame")
         if fr is not None and id(fr) != st["fid"]:
             st["fid"] = id(fr)
@@ -1683,6 +1807,109 @@ def open_phone_window(hub, root, info):
             except Exception:
                 pass
         win.after(15, tick)
+
+    def close():
+        st["alive"] = False
+        try:
+            win.destroy()
+        except Exception:
+            pass
+
+    win.protocol("WM_DELETE_WINDOW", close)
+    tick()
+    win.lift()
+    return win
+
+
+def open_cam_window(hub, root, info):
+    """Janela no PC que mostra a câmera do celular ao vivo (webcam Wi-Fi) e tira fotos."""
+    import tkinter as tk
+    from PIL import Image, ImageTk
+
+    BG, FG, ACC, CARD = "#0e1014", "#e9ecf1", "#ff6b2c", "#1c2027"
+    win = tk.Toplevel(root)
+    win.title(f"Câmera: {info['nome']}")
+    win.configure(bg=BG)
+    win.resizable(True, True)
+    win.geometry("680x560")
+    F = "Segoe UI" if IS_WIN else "Helvetica"
+
+    bar = tk.Frame(win, bg=CARD)
+    bar.pack(fill="x")
+
+    st = {"img": None, "raw": None, "fid": None, "mirror": False, "fs": False, "alive": True}
+
+    def send_cam(obj):
+        ws = info.get("ws")
+        if ws is not None and hub.loop:
+            asyncio.run_coroutine_threadsafe(hub.send(ws, obj), hub.loop)
+
+    def save_photo():
+        im = st["raw"]
+        if im is None:
+            return
+        out = files_dir() / f"Foto_{time.strftime('%Y%m%d_%H%M%S')}.jpg"
+        im.save(out, "JPEG", quality=92)
+        hub._scan_files_dir()
+        if IS_WIN:
+            os.startfile(str(out))  # noqa
+
+    def toggle_mirror():
+        st["mirror"] = not st["mirror"]
+        render_cam()
+
+    def toggle_fs(*_):
+        st["fs"] = not st["fs"]
+        win.attributes("-fullscreen", st["fs"])
+
+    for label, cmd in [
+        ("📸 Tirar foto no PC", save_photo),
+        ("🔄 Virar câmera", lambda: send_cam({"t": "flip"})),
+        ("🔦 Lanterna", lambda: send_cam({"t": "torch"})),
+        ("↔ Espelhar", toggle_mirror),
+        ("⛶ Tela cheia", toggle_fs),
+    ]:
+        tk.Button(bar, text=label, command=cmd, font=(F, 10), bg=CARD, fg=FG,
+                  activebackground=ACC, relief="flat", bd=0, padx=10, pady=8,
+                  cursor="hand2").pack(side="left", padx=3, pady=4)
+
+    canvas = tk.Canvas(win, bg="#000", highlightthickness=0)
+    canvas.pack(fill="both", expand=True, padx=10, pady=10)
+
+    def render_cam():
+        im = st["raw"]
+        if im is None:
+            return
+        if st["mirror"]:
+            from PIL import ImageOps
+            im = ImageOps.mirror(im)
+        cw = max(60, canvas.winfo_width())
+        ch = max(60, canvas.winfo_height())
+        scale = min(cw / max(1, im.width), ch / max(1, im.height))
+        dw, dh = max(1, int(im.width * scale)), max(1, int(im.height * scale))
+        resized = im.resize((dw, dh), Image.BILINEAR)
+        st["img"] = ImageTk.PhotoImage(resized)
+        canvas.delete("all")
+        canvas.create_image((cw - dw) // 2, (ch - dh) // 2, anchor="nw", image=st["img"])
+
+    canvas.bind("<Configure>", lambda _e: render_cam())
+    win.bind("<F11>", toggle_fs)
+
+    def tick():
+        if not st["alive"]:
+            return
+        if info.get("ws") not in hub.cams:
+            win.after(500, close)
+            return
+        fr = info.get("frame")
+        if fr is not None and id(fr) != st["fid"]:
+            st["fid"] = id(fr)
+            try:
+                st["raw"] = Image.open(io.BytesIO(fr))
+                render_cam()
+            except Exception:
+                pass
+        win.after(20, tick)
 
     def close():
         st["alive"] = False
@@ -1731,9 +1958,11 @@ def run_gui(hub, start_hidden=False):
     box.pack(fill="x", padx=20, pady=14)
     status_lbl = tk.Label(box, font=(F, 10), bg=CARD, fg=FG, justify="left", anchor="w")
     status_lbl.pack(fill="x")
+    pw_lbl = tk.Label(box, font=(F, 9), bg=CARD, fg=MUTED, anchor="w")
+    pw_lbl.pack(fill="x", pady=(3, 0))
     admin_lbl = tk.Label(box, font=(F, 9), bg=CARD, fg=MUTED, anchor="w",
                          text="Rodando como administrador" if hub.admin else "Modo normal (sem administrador)")
-    admin_lbl.pack(fill="x", pady=(4, 0))
+    admin_lbl.pack(fill="x", pady=(2, 0))
 
     opts = tk.Frame(root, bg=BG)
     opts.pack(fill="x", padx=20)
@@ -1766,6 +1995,25 @@ def run_gui(hub, start_hidden=False):
 
     mkbtn(row1, "Novo acesso", regen)
 
+    def definir_senha():
+        from tkinter import simpledialog
+        atual = bool(hub.cfg.get("senha_hash"))
+        msg = ("Digite a sua senha fixa para acessar este PC de qualquer lugar "
+               "(porta 8765).\n\n"
+               + ("Deixe em branco e clique em OK se quiser remover a senha fixa atual." if atual
+                  else "Você poderá entrar digitando essa senha ou o PIN de 6 dígitos."))
+        nova = simpledialog.askstring(APP_NAME, msg, parent=root, show="•")
+        if nova is None:
+            return
+        set_password(hub.cfg, nova)
+        hub.dirty = True
+        if nova.strip():
+            messagebox.showinfo(APP_NAME, f"Senha fixa salva!\n\nPara acessar fora de casa, redirecione a porta TCP {hub.port} no seu roteador para o IP {lan_ip()}.")
+        else:
+            messagebox.showinfo(APP_NAME, "Senha fixa removida. O acesso agora usa apenas o PIN temporário.")
+
+    mkbtn(row1, "🔑 Senha fixa", definir_senha)
+
     def edit_apps():
         try:
             if IS_WIN:
@@ -1795,6 +2043,7 @@ def run_gui(hub, start_hidden=False):
 
     mkbtn(row1, "Ver meu celular", ver_celular)
     hub.phone_cb = lambda ev, info: cmds.put(("phone", ev, info))
+    hub.cam_cb = lambda ev, info: cmds.put(("cam", ev, info))
     hub.file_cb = lambda saved: cmds.put(("files", saved))
 
     row_files = tk.Frame(root, bg=BG)
@@ -1857,6 +2106,10 @@ def run_gui(hub, start_hidden=False):
             status_lbl.configure(text=f"●  Conectado: {names}", fg="#57d68d")
         else:
             status_lbl.configure(text="○  Nenhum celular conectado", fg=FG)
+        if hub.cfg.get("senha_hash"):
+            pw_lbl.configure(text=f"🔑 Senha fixa ativa · Porta TCP {hub.port} (IP local {lan_ip()})", fg="#4fd38a")
+        else:
+            pw_lbl.configure(text=f"🔓 Sem senha fixa (use '🔑 Senha fixa' para acesso externo na porta {hub.port})", fg=MUTED)
 
     def quit_all():
         try:
@@ -1881,6 +2134,10 @@ def run_gui(hub, start_hidden=False):
                     _, ev, info = c
                     if ev == "on":
                         open_phone(info)
+                elif isinstance(c, tuple) and c[0] == "cam":
+                    _, ev, info = c
+                    if ev == "on":
+                        open_cam_window(hub, root, info)
                 elif isinstance(c, tuple) and c[0] == "files":
                     _, saved = c
                     nomes = ", ".join(s["nome"] for s in saved[:2])

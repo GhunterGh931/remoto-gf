@@ -35,6 +35,7 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -71,8 +72,10 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     private static final int REQ_PROJECTION = 7001;
     private static final int REQ_FILE_CHOOSER = 7002;
+    private static final int REQ_CAM_PERM = 7003;
     private String pendingHost, pendingToken, pendingName;
     private ValueCallback<Uri[]> fileCallback;
+    private PermissionRequest pendingWebPerm;
     private BroadcastReceiver controlRx;
 
     @Override
@@ -98,6 +101,18 @@ public class MainActivity extends Activity implements SensorEventListener {
         s.setTextZoom(100);
 
         web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                ui.post(() -> {
+                    if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission("android.permission.CAMERA") != PackageManager.PERMISSION_GRANTED) {
+                        pendingWebPerm = request;
+                        requestPermissions(new String[]{"android.permission.CAMERA", "android.permission.RECORD_AUDIO"}, REQ_CAM_PERM);
+                    } else {
+                        request.grant(request.getResources());
+                    }
+                });
+            }
+
             @Override
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback,
                                              FileChooserParams fileChooserParams) {
@@ -186,6 +201,18 @@ public class MainActivity extends Activity implements SensorEventListener {
                 .putExtra("host", pendingHost).putExtra("token", pendingToken).putExtra("name", pendingName);
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc);
         else startService(svc);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_CAM_PERM && pendingWebPerm != null) {
+            try {
+                pendingWebPerm.grant(pendingWebPerm.getResources());
+            } catch (Exception ignored) {
+            }
+            pendingWebPerm = null;
+        }
     }
 
     private void js(final String code) {
@@ -325,6 +352,65 @@ public class MainActivity extends Activity implements SensorEventListener {
         public void copy(String text) {
             ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("Remoto GF", text));
+        }
+
+        @JavascriptInterface
+        public String getClip() {
+            try {
+                ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                if (cm != null && cm.hasPrimaryClip() && cm.getPrimaryClip() != null && cm.getPrimaryClip().getItemCount() > 0) {
+                    CharSequence cs = cm.getPrimaryClip().getItemAt(0).getText();
+                    return cs != null ? cs.toString() : "";
+                }
+            } catch (Exception ignored) {
+            }
+            return "";
+        }
+
+        @JavascriptInterface
+        public void openAppSettings() {
+            try {
+                Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", getPackageName(), null));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+            } catch (Exception ignored) {
+            }
+        }
+
+        @JavascriptInterface
+        public void wakeOnLan(String mac, String hostIp) {
+            new Thread(() -> {
+                try {
+                    String clean = mac == null ? "" : mac.replaceAll("[^0-9A-Fa-f]", "");
+                    if (clean.length() != 12) return;
+                    byte[] macBytes = new byte[6];
+                    for (int i = 0; i < 6; i++) {
+                        macBytes[i] = (byte) Integer.parseInt(clean.substring(i * 2, i * 2 + 2), 16);
+                    }
+                    byte[] pkt = new byte[6 + 16 * 6];
+                    for (int i = 0; i < 6; i++) pkt[i] = (byte) 0xFF;
+                    for (int i = 6; i < pkt.length; i += 6) {
+                        System.arraycopy(macBytes, 0, pkt, i, 6);
+                    }
+                    try (DatagramSocket sock = new DatagramSocket()) {
+                        sock.setBroadcast(true);
+                        InetAddress bcast = InetAddress.getByName("255.255.255.255");
+                        for (int port : new int[]{9, 7, DISCOVERY_PORT}) {
+                            sock.send(new DatagramPacket(pkt, pkt.length, bcast, port));
+                        }
+                        if (hostIp != null && hostIp.contains(".")) {
+                            String ipOnly = hostIp.split(":")[0];
+                            int lastDot = ipOnly.lastIndexOf('.');
+                            if (lastDot > 0) {
+                                InetAddress sub = InetAddress.getByName(ipOnly.substring(0, lastDot) + ".255");
+                                sock.send(new DatagramPacket(pkt, pkt.length, sub, 9));
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
+            }).start();
         }
 
         @JavascriptInterface

@@ -35,7 +35,17 @@ svg.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stro
 
 /* topo */
 header{display:flex;align-items:center;gap:10px;padding:calc(10px + var(--safe-t)) 14px 10px;background:var(--bg)}
-.logo{width:34px;height:34px;border-radius:10px;background:var(--card) url(/icon-192.png) center/cover}
+.logo{width:34px;height:34px;border-radius:10px;background:var(--card) url(icon-192.png) center/cover}
+
+/* roda de edição (jog wheel) */
+.jogwrap{display:flex;flex-direction:column;align-items:center;gap:10px;padding:6px 0}
+#jogWheel{width:190px;height:190px;border-radius:50%;position:relative;touch-action:none;
+  background:radial-gradient(circle,#262c36 0 34%,#181b22 35% 68%,#20252f 69% 100%);
+  box-shadow:inset 0 0 0 2px var(--line),0 6px 18px rgba(0,0,0,.45);display:grid;place-items:center}
+#jogWheel.turn{box-shadow:inset 0 0 0 2.5px var(--acc),0 6px 20px rgba(255,107,44,.25)}
+#jogDot{position:absolute;width:16px;height:16px;border-radius:50%;background:var(--acc);top:14px;left:50%;margin-left:-8px;transform-origin:8px 81px;pointer-events:none;box-shadow:0 0 10px var(--acc)}
+#jogCenter{width:76px;height:76px;border-radius:50%;background:var(--card2);border:1.5px solid var(--line);display:grid;place-items:center;font-weight:700;font-size:12.5px;color:var(--fg);text-align:center;line-height:1.15}
+#jogCenter:active{background:var(--acc);color:#111}
 .brand{flex:1;min-width:0;line-height:1.15}
 .brand b{display:block;font-size:16px}
 .brand small{color:var(--mut);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
@@ -287,8 +297,23 @@ nav button.active{color:var(--acc);background:var(--accbg)}
 
   <!-- ATALHOS -->
   <section class="panel" data-p="atalhos">
-    <div class="card"><h3>Gerais</h3><div class="grid" id="gridGeral"></div></div>
+    <div class="card">
+      <h3>Roda de edição (Jog Wheel · Resolve / Premiere)</h3>
+      <div class="jogwrap">
+        <div class="row" style="width:100%" id="jogModes">
+          <button data-jm="frame" class="on" style="padding:8px;font-size:12.5px">Frame (←/→)</button>
+          <button data-jm="scroll" style="padding:8px;font-size:12.5px">Rolar Timeline</button>
+          <button data-jm="zoom" style="padding:8px;font-size:12.5px">Zoom (Ctrl±)</button>
+        </div>
+        <div id="jogWheel">
+          <div id="jogDot"></div>
+          <button id="jogCenter" type="button">Play /<br>Pause</button>
+        </div>
+        <p class="hint" style="margin:0;text-align:center">Gire o dedo ao redor da roda para avançar ou voltar · toque no centro para Play/Pause.</p>
+      </div>
+    </div>
     <div class="card"><h3>DaVinci Resolve</h3><div class="grid" id="gridResolve"></div></div>
+    <div class="card"><h3>Gerais</h3><div class="grid" id="gridGeral"></div></div>
     <div class="card"><h3>Meus atalhos</h3><div class="grid" id="gridMeus"></div>
       <form id="addSc" style="margin-top:10px;display:grid;gap:8px">
         <input id="scName" placeholder="Nome (ex: Exportar)">
@@ -316,6 +341,7 @@ nav button.active{color:var(--acc);background:var(--accbg)}
       <div><b id="stCpu">--</b><small>CPU</small></div><div><b id="stRam">--</b><small>RAM</small></div>
       <div><b id="stBat">--</b><small>Bateria</small></div><div><b id="stUp">--</b><small>Ligado há</small></div></div></div>
     <div class="card"><h3>Energia</h3><div class="grid g2">
+      <button id="wolBtn" class="pri" style="grid-column:span 2">⚡ Ligar PC (Wake-on-LAN)</button>
       <button data-power="lock">Bloquear</button><button data-power="monitor_off">Desligar a tela</button>
       <button data-power="sleep" data-ask="Colocar o PC para dormir?">Suspender</button><button data-power="restart" data-ask="Reiniciar o PC? Você ainda pode cancelar por 30 segundos.">Reiniciar</button>
       <button data-power="shutdown" data-ask="Desligar o PC? Você ainda pode cancelar por 30 segundos." class="danger">Desligar</button><button data-power="cancel">Cancelar desligar</button>
@@ -356,6 +382,27 @@ nav button.active{color:var(--acc);background:var(--accbg)}
     </div>
   </section>
 
+  <!-- CÂMERA DO CELULAR NO PC -->
+  <section class="panel" data-p="camera">
+    <div class="card">
+      <h3>Usar câmera deste celular no PC</h3>
+      <p class="hint" style="margin-top:0">Transmite a câmera ao vivo pelo Wi-Fi para uma janela no seu computador (com botão de tirar foto e tela cheia lá no PC).</p>
+      <div style="position:relative;background:#000;border-radius:14px;overflow:hidden;min-height:200px;display:grid;place-items:center;margin:10px 0">
+        <video id="camVid" autoplay playsinline muted style="width:100%;max-height:300px;display:block"></video>
+        <div id="camMsg" style="position:absolute;color:var(--mut);font-size:13px">Câmera desligada</div>
+      </div>
+      <div class="row" style="margin-bottom:8px">
+        <select id="camFace"><option value="environment">Câmera traseira</option><option value="user">Câmera frontal</option></select>
+        <select id="camRes"><option value="480">Leve (480p)</option><option value="720" selected>HD (720p)</option><option value="1080">Full HD (1080p)</option></select>
+      </div>
+      <div class="row">
+        <button class="pri" id="camStartBtn">Iniciar câmera no PC</button>
+        <button class="danger hidden" id="camStopBtn">Parar câmera</button>
+        <button id="camTorchBtn" style="flex:0 0 auto;padding:12px 14px">🔦 Lanterna</button>
+      </div>
+    </div>
+  </section>
+
   <!-- DEIXAR O PC ME CONTROLAR (só no app) -->
   <section class="panel" data-p="espelhar">
     <div class="card">
@@ -366,6 +413,7 @@ nav button.active{color:var(--acc);background:var(--accbg)}
       </div>
       <button class="pri" id="mirrorBtn" style="width:100%">Iniciar</button>
       <button id="mirrorStop" class="hidden danger" style="width:100%;margin-top:8px">Parar de compartilhar</button>
+      <button id="restrBtn" style="width:100%;margin-top:8px;background:var(--card2);font-size:13px">🔓 Liberar "Configuração restrita" (Android 13+)</button>
     </div>
     <div class="card">
       <h3>Como funciona</h3>
@@ -397,11 +445,12 @@ nav button.active{color:var(--acc);background:var(--accbg)}
     <div id="appHost" class="hidden" style="text-align:left;margin-bottom:12px">
       <div class="row" style="align-items:center;margin-bottom:8px"><b style="flex:1;font-size:14px">PCs nesta rede</b><button id="scanBtn" style="flex:0 0 auto;padding:8px 14px;font-size:13px">Procurar</button></div>
       <div id="found"></div>
-      <input id="hostIn" placeholder="ou digite o IP do PC (ex: 192.168.0.10)" inputmode="decimal" autocomplete="off" style="margin-top:6px">
+      <input id="hostIn" placeholder="IP ou endereço do PC (ex: 192.168.0.10 ou meu-pc:8765)" autocomplete="off" autocapitalize="off" style="margin-top:6px">
     </div>
-    <input id="pin" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000">
+    <input id="pin" type="password" maxlength="64" autocomplete="current-password" placeholder="Sua senha fixa ou PIN de 6 dígitos" style="font-size:20px;letter-spacing:.08em">
     <input id="devname" placeholder="Nome deste celular" style="margin-bottom:12px">
     <button class="pri" id="pairBtn" style="width:100%">Conectar</button>
+    <button id="pairWolBtn" class="hidden" style="width:100%;margin-top:8px;background:var(--card2)">⚡ Ligar último PC (Wake-on-LAN)</button>
     <p class="err" id="pairErr"></p>
   </div>
 </div>
@@ -457,6 +506,7 @@ const P={
   focus:'<path d="M9 5H5v4M15 5h4v4M9 19H5v-4M15 19h4v-4"/>', full:'<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
   gyro:'<rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M3 8c-1.3 2.5-1.3 5.5 0 8M21 8c1.3 2.5 1.3 5.5 0 8"/>',
   arquivos:'<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 11v6M9.5 13.5 12 11l2.5 2.5"/>',
+  camera:'<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
   espelhar:'<rect x="3" y="4" width="13" height="9" rx="1.5"/><rect x="15" y="10" width="6" height="10" rx="1.5"/><path d="M8 20h4"/>',
 };
 const ic=(n,s)=>`<svg class="i" viewBox="0 0 24 24"${s?` style="width:${s}px;height:${s}px"`:''}>${P[n]||''}</svg>`;
@@ -465,19 +515,19 @@ const ic=(n,s)=>`<svg class="i" viewBox="0 0 24 24"${s?` style="width:${s}px;hei
 const PANELS={
   mouse:['Touchpad','mouse'], midia:['Controle de mídia','midia'], apps:['Controle de apps','apps'],
   nav:['Controle do navegador','nav'], teclado:['Teclado','teclado'], fn:['Teclas numéricas e de função','fn'],
-  atalhos:['Barra de atalhos','atalhos'], tela:['Tela do PC','tela'], energia:['Controle de energia','energia'],
+  atalhos:['Barra de atalhos e Jog Wheel','atalhos'], tela:['Tela do PC','tela'], energia:['Controle de energia','energia'],
   clip:['Copiar e colar entre PC e celular','clip'], arquivos:['Passar arquivos PC e celular','arquivos'],
-  espelhar:['Deixar o PC me controlar','espelhar'],
+  camera:['Câmera do celular no PC','camera'], espelhar:['Deixar o PC me controlar','espelhar'],
 };
-const SHORT={mouse:'Mouse',midia:'Mídia',apps:'Apps',nav:'Navegador',teclado:'Teclado',fn:'Fn',atalhos:'Atalhos',tela:'Tela',energia:'Energia',clip:'Copiar',arquivos:'Arquivos',espelhar:'PC controla'};
+const SHORT={mouse:'Mouse',midia:'Mídia',apps:'Apps',nav:'Navegador',teclado:'Teclado',fn:'Fn',atalhos:'Atalhos',tela:'Tela',energia:'Energia',clip:'Copiar',arquivos:'Arquivos',camera:'Câmera',espelhar:'PC controla'};
 const DEF={
   sens:1.0, scroll:1.0, natural:true,
   buttons:true, gyro:false, onehand:false, lefty:false,
   accel:true, precision:false, lowlat:true,
   longRight:true, twoTapRight:true, twoScroll:true, pinch:true, dblDrag:true, threeDrag:true,
   feedback:true, kbBuffer:false, modTap:false,
-  sounds:true, haptic:true, volKeys:true, autoReconnect:true, wake:true, portrait:true,
-  order:['midia','apps','nav','teclado','fn','atalhos','tela','energia','clip','arquivos','espelhar'], hidden:[],
+  sounds:true, haptic:true, volKeys:true, syncClip:true, autoReconnect:true, wake:true, portrait:true,
+  order:['midia','apps','nav','teclado','fn','atalhos','tela','energia','clip','arquivos','camera','espelhar'], hidden:[],
 };
 const S=Object.assign({},DEF,LS.get('settings',{}));
 for(const k of DEF.order) if(!S.order.includes(k)) S.order.push(k);
@@ -520,33 +570,35 @@ function send(o){ if(ws&&ws.readyState===1) ws.send(JSON.stringify(o)); }
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ if(!ws||ws.readyState>1) connect(); wake(); } });
 
 function showPair(msg){ $('#pair').classList.remove('hidden'); $('#devname').value=devName();
-  if(APP){ $('#appHost').classList.remove('hidden'); $('#pairMsg').textContent=msg||'Abra o Remoto GF no computador, escolha o PC abaixo e digite o PIN que aparece na janela dele.'; if(host) $('#hostIn').value=host; scan(); }
+  const savedMac=LS.get('mac',null);
+  $('#pairWolBtn').classList.toggle('hidden',!(APP&&savedMac));
+  if(APP){ $('#appHost').classList.remove('hidden'); $('#pairMsg').textContent=msg||'Digite a sua senha fixa (ou o PIN de 6 dígitos da janela do PC).'; if(host) $('#hostIn').value=host; scan(); }
   else if(msg) $('#pairMsg').textContent=msg; }
 function scan(){ if(!APP) return; $('#found').innerHTML='<div class="empty">Procurando...</div>'; try{ NA.discover(); }catch(e){} }
-window.onDiscovered=j=>{ try{ const d=JSON.parse(j); const hp=d.ip+':'+(d.porta||8765); const box=$('#found'); const em=$('.empty',box); if(em) em.remove();
+window.onDiscovered=j=>{ try{ const d=JSON.parse(j); if(d.mac) LS.set('mac',d.mac); const hp=d.ip+':'+(d.porta||8765); const box=$('#found'); const em=$('.empty',box); if(em) em.remove();
   if($(`[data-hp="${hp}"]`,box)) return;
   const b=h('button',{'data-hp':hp,onclick:()=>{ $('#hostIn').value=hp; $$('#found button').forEach(x=>x.classList.toggle('on',x===b)); tick(); }},h('span',{},d.nome||'PC'),h('small',{},d.ip));
   box.append(b); if(!$('#hostIn').value||box.children.length===1){ b.click(); } }catch(e){} };
-window.onDiscoverDone=()=>{ const e=$('#found .empty'); if(e) e.textContent='Nenhum PC encontrado. Confira se o Remoto GF está aberto no PC e no mesmo Wi-Fi, ou digite o IP.'; };
+window.onDiscoverDone=()=>{ const e=$('#found .empty'); if(e) e.textContent='Nenhum PC na rede local. Se estiver fora de casa, digite o IP/endereço do seu PC abaixo e sua senha fixa.'; };
 window.onDiscoverError=m=>{ const e=$('#found .empty'); if(e) e.textContent='Não deu para procurar: '+m; };
 $('#scanBtn').onclick=()=>{ scan(); tick(); };
 $('#pairBtn').onclick=async()=>{
-  const pin=$('#pin').value.replace(/\D/g,''); const nome=$('#devname').value.trim()||'Celular';
-  if(pin.length!==6){$('#pairErr').textContent='O PIN tem 6 números.';return;}
+  const pin=$('#pin').value.trim(); const nome=$('#devname').value.trim()||'Celular';
+  if(!pin){$('#pairErr').textContent='Digite a sua senha fixa ou o PIN de 6 dígitos.';return;}
   LS.set('devname',nome); $('#pairErr').textContent='';
-  if(APP){ let hp=$('#hostIn').value.trim().replace(/^https?:\/\//,'').replace(/\/.*$/,''); if(!hp){$('#pairErr').textContent='Escolha o PC ou digite o IP dele.';return;} if(!/:\d+$/.test(hp)) hp+=':8765'; host=hp; LS.set('host',hp); }
+  if(APP){ let hp=$('#hostIn').value.trim().replace(/^https?:\/\//,'').replace(/\/.*$/,''); if(!hp){$('#pairErr').textContent='Escolha o PC ou digite o IP/endereço dele.';return;} if(!/:\d+$/.test(hp)) hp+=':8765'; host=hp; LS.set('host',hp); }
   try{const r=await fetch(base()+'/api/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin,nome})});
     const j=await r.json(); if(!r.ok) throw new Error(j.erro||'Falhou');
     token=j.token; LS.set('token',token); $('#pair').classList.add('hidden'); $('#pin').value=''; connect();
   }catch(e){$('#pairErr').textContent=e.message||'Não consegui falar com o PC.';}
 };
-$('#pin').addEventListener('input',e=>{ if(e.target.value.replace(/\D/g,'').length===6) $('#pairBtn').click(); });
+$('#pin').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#pairBtn').click(); } });
 $('#gateBtn').onclick=()=>connect();
 
 /* ============================================================ mensagens do PC */
 function handle(m){
   switch(m.t){
-    case 'hello': hello=m; $('#pcname').textContent=m.pc+(m.admin?' · admin':'');
+    case 'hello': hello=m; if(m.mac) LS.set('mac',m.mac); $('#pcname').textContent=m.pc+(m.admin?' · admin':'');
       $('#scrMon').innerHTML=''; for(let i=1;i<=(m.monitores||1);i++) $('#scrMon').append(h('option',{value:i},`Monitor ${i}`));
       buildLaunch(m.apps||[]); break;
     case 'vol': setVol(m.v,m.m); break;
@@ -554,7 +606,8 @@ function handle(m){
     case 'bright': if(m.v!=null){$('#brightCard').classList.remove('hidden'); $('#bright').value=m.v; rangeFill($('#bright'));} break;
     case 'windows': buildWins(m.list); break;
     case 'stats': setStats(m); break;
-    case 'clip': $('#clip').value=m.text; toast('Recebido do PC','Texto da área de transferência do PC.','ok'); break;
+    case 'clip': $('#clip').value=m.text; lastSyncedClip=m.text; toast('Recebido do PC','Texto da área de transferência do PC.','ok'); break;
+    case 'clip_sync': if(S.syncClip&&m.text&&m.text!==lastSyncedClip){ lastSyncedClip=m.text; $('#clip').value=m.text; if(APP) try{NA.copy(m.text)}catch(e){} } break;
     case 'files': buildFiles(m.list||[], m.pasta); break;
     case 'notify': toast(m.title,m.msg,m.level,m.actions,m.id,m.sticky);
       if(APP&&(document.hidden||m.level==='warn'||m.level==='error')) try{ NA.notify(m.title||'Remoto GF',m.msg||''); }catch(e){}
@@ -779,7 +832,29 @@ $('#urlForm').onsubmit=e=>{ e.preventDefault(); const v=$('#url').value.trim(); 
   else { send({t:'open_url',url:'https://www.google.com/search?q='+encodeURIComponent(v)}); }
   $('#url').value=''; $('#url').blur(); tick(); };
 
-// atalhos do usuário
+// atalhos do usuário + Jog Wheel (Roda de Edição)
+(()=>{
+  const wheel=$('#jogWheel'), dot=$('#jogDot'), center=$('#jogCenter');
+  let mode='frame', active=false, lastAng=0, acc=0, deg=0;
+  $$('#jogModes button').forEach(b=>b.onclick=()=>{ mode=b.dataset.jm; $$('#jogModes button').forEach(x=>x.classList.toggle('on',x===b)); tick(); });
+  center.onclick=e=>{ e.stopPropagation(); combo('space','Play / Pause'); };
+  const ang=e=>{ const r=wheel.getBoundingClientRect(); const t=e.touches?e.touches[0]:e; return Math.atan2(t.clientY-(r.top+r.height/2), t.clientX-(r.left+r.width/2))*180/Math.PI; };
+  wheel.addEventListener('touchstart',e=>{ if(e.target===center) return; e.preventDefault(); active=true; lastAng=ang(e); acc=0; wheel.classList.add('turn'); },{passive:false});
+  wheel.addEventListener('touchmove',e=>{ if(!active) return; e.preventDefault(); const a=ang(e); let d=a-lastAng;
+    if(d>180) d-=360; if(d<-180) d+=360;
+    lastAng=a; acc+=d; deg=(deg+d)%360; dot.style.transform=`rotate(${deg}deg)`;
+    const step=mode==='zoom'?26:14;
+    while(Math.abs(acc)>=step){
+      const dir=acc>0?1:-1; acc-=dir*step;
+      if(mode==='frame') send({t:'key',k:dir>0?'right':'left'});
+      else if(mode==='scroll') send({t:'s',x:dir*45,y:0});
+      else if(mode==='zoom') send({t:'combo',keys:['ctrl',dir>0?'=':'-']});
+      tick();
+    }
+  },{passive:false});
+  const end=()=>{ active=false; wheel.classList.remove('turn'); };
+  wheel.addEventListener('touchend',end); wheel.addEventListener('touchcancel',end);
+})();
 let myShort=LS.get('atalhos',[]);
 function buildMine(){ const g=$('#gridMeus'); g.innerHTML='';
   if(!myShort.length) g.append(h('div',{class:'empty',style:'grid-column:1/-1'},'Nenhum ainda'));
@@ -870,7 +945,18 @@ function setStats(m){ $('#stCpu').textContent=m.cpu!=null?Math.round(m.cpu)+'%':
 $$('[data-power]').forEach(b=>b.onclick=()=>{ const go=()=>{ send({t:'power',a:b.dataset.power}); tick(); };
   b.dataset.ask?ask(b.textContent,b.dataset.ask,go,b.textContent):go(); });
 $$('[data-timer]').forEach(b=>b.onclick=()=>ask('Desligar automaticamente',`O PC vai desligar em ${b.textContent}. Confirmar?`,()=>send({t:'power',a:'timer',min:+b.dataset.timer})));
-$('#clipSend').onclick=()=>{ send({t:'clip_set',text:$('#clip').value}); tick(); };
+let lastSyncedClip='';
+function triggerWol(){
+  const mac=LS.get('mac',null);
+  if(!mac){ toast('MAC ainda não salvo','Conecte ao PC pelo menos uma vez para o celular memorizar a placa de rede dele.','warn'); return; }
+  if(!APP||!NA.wakeOnLan){ toast('Disponível no app instalado','O envio de pacote mágico UDP Wake-on-LAN requer o app Android instalado.','warn'); return; }
+  NA.wakeOnLan(mac, host||'');
+  toast('Sinal enviado (Wake-on-LAN)',`Pacote mágico enviado para ${mac}. O PC deve ligar em alguns segundos.`,'ok');
+  tick(true);
+}
+$('#wolBtn').onclick=triggerWol;
+$('#pairWolBtn').onclick=triggerWol;
+$('#clipSend').onclick=()=>{ lastSyncedClip=$('#clip').value; send({t:'clip_set',text:$('#clip').value}); tick(); };
 $('#clipGet').onclick=()=>{ send({t:'clip_get'}); tick(); };
 $('#clipType').onclick=()=>{ const v=$('#clip').value; if(v){ send({t:'type',text:v}); fb('Digitando no PC'); tick(); } };
 $('#clipCopy').onclick=async()=>{ const ta=$('#clip'); if(APP){ NA.copy(ta.value); fb('Copiado no celular'); tick(); return; } try{ await navigator.clipboard.writeText(ta.value); }catch(e){ ta.select(); document.execCommand('copy'); } fb('Copiado no celular'); tick(); };
@@ -985,6 +1071,7 @@ function renderS(){
       sec('Geral'),
       APP?tg('volKeys','Usar botões de volume','Controlar volume do PC com botões do celular')
          :info('Usar botões de volume','Só no app instalado: o navegador não recebe os botões físicos'),
+      tg('syncClip','Sincronizar área de transferência','O que copiar no PC ou no celular passa para o outro automaticamente'),
       tg('sounds','Sons de toque'),
       tg('haptic','Vibração ao tocar'),
       tg('autoReconnect','Reconexão automática','Reconectar ao último computador ao abrir'),
@@ -1072,7 +1159,66 @@ window.onNativeBack=()=>{
   if($('#settings').classList.contains('open')){ if(sPages.length>1){ sPages.pop(); renderS(); } else closeSettings(); return true; }
   if(cur!=='mouse'){ show('mouse'); return true; }
   return false; };
-window.onNativeResume=()=>{ if(token&&(!ws||ws.readyState>1)) connect(); updateMirror(); };
+window.onNativeResume=()=>{
+  if(token&&(!ws||ws.readyState>1)) connect();
+  updateMirror();
+  if(APP&&S.syncClip&&NA.getClip){
+    try{ const c=NA.getClip(); if(c&&c!==lastSyncedClip){ lastSyncedClip=c; $('#clip').value=c; send({t:'clip_sync',text:c}); } }catch(e){}
+  }
+};
+
+/* ====== câmera do celular no PC ====== */
+(()=>{
+  let stream=null, camWs=null, camTimer=0, torchOn=false;
+  const vid=$('#camVid'), msg=$('#camMsg'), cnv=document.createElement('canvas');
+  async function startCam(){
+    stopCam();
+    const hVal=+$('#camRes').value||720, face=$('#camFace').value||'environment';
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:face,height:{ideal:hVal}},audio:false});
+      vid.srcObject=stream; msg.classList.add('hidden');
+      $('#camStartBtn').classList.add('hidden'); $('#camStopBtn').classList.remove('hidden');
+      const proto=!APP&&location.protocol==='https:'?'wss':'ws';
+      camWs=new WebSocket(`${proto}://${APP?host:location.host}/wscam?t=${encodeURIComponent(token)}&n=${encodeURIComponent(devName())}`);
+      camWs.onmessage=e=>{
+        try{
+          const d=JSON.parse(e.data);
+          if(d.t==='flip'){ $('#camFace').value=$('#camFace').value==='user'?'environment':'user'; startCam(); }
+          if(d.t==='torch') toggleTorch();
+        }catch(err){}
+      };
+      camTimer=setInterval(()=>{
+        if(!camWs||camWs.readyState!==1||!vid.videoWidth||camWs.bufferedAmount>256*1024) return;
+        cnv.width=vid.videoWidth; cnv.height=vid.videoHeight;
+        cnv.getContext('2d').drawImage(vid,0,0);
+        cnv.toBlob(b=>{ if(b&&camWs&&camWs.readyState===1) camWs.send(b); },'image/jpeg',0.68);
+      },70);
+    }catch(err){
+      toast('Câmera indisponível',err.message||'Permita o uso da câmera no celular.','error');
+    }
+  }
+  function stopCam(){
+    clearInterval(camTimer); camTimer=0;
+    if(camWs){ try{camWs.close()}catch(e){} camWs=null; }
+    if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+    vid.srcObject=null; msg.classList.remove('hidden');
+    $('#camStartBtn').classList.remove('hidden'); $('#camStopBtn').classList.add('hidden');
+  }
+  async function toggleTorch(){
+    if(!stream) return;
+    const tr=stream.getVideoTracks()[0];
+    if(!tr) return;
+    try{ torchOn=!torchOn; await tr.applyConstraints({advanced:[{torch:torchOn}]}); tick(); }
+    catch(e){ toast('Lanterna indisponível','Esta câmera não suporta lanterna.','warn'); }
+  }
+  $('#camStartBtn').onclick=()=>{ startCam(); tick(); };
+  $('#camStopBtn').onclick=()=>{ stopCam(); tick(); };
+  $('#camFace').onchange=()=>{ if(stream) startCam(); };
+  $('#camRes').onchange=()=>{ if(stream) startCam(); };
+  $('#camTorchBtn').onclick=toggleTorch;
+})();
+
+$('#restrBtn').onclick=()=>{ if(APP&&NA.openAppSettings) NA.openAppSettings(); tick(); };
 
 /* ====== deixar o PC controlar este celular (só no app) ====== */
 function updateMirror(){
