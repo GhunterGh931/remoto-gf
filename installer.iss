@@ -31,8 +31,13 @@ Name: "pt"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 Name: "desktopicon"; Description: "Criar atalho na área de trabalho"
 Name: "autostart"; Description: "Iniciar junto com o Windows (fica na bandeja, perto do relógio)"
 
+[InstallDelete]
+; remove arquivos de versões antigas antes de copiar os novos
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
-Source: "dist\RemotoGF.exe"; DestDir: "{app}"; Flags: ignoreversion
+; modo pasta (onedir): o app não se extrai mais em %TEMP%\_MEI..., abre mais rápido e não deixa lixo
+Source: "dist\RemotoGF\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\Remoto GF"; Filename: "{app}\RemotoGF.exe"

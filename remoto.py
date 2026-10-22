@@ -2609,7 +2609,41 @@ def print_banner(hub):
     print()
 
 
+def setup_crash_log():
+    """Grava erros e travamentos nativos em %APPDATA%\\RemotoGF\\crash.log para diagnóstico."""
+    try:
+        import faulthandler
+        import traceback
+        path = config_dir() / "crash.log"
+        try:
+            if path.exists() and path.stat().st_size > 512 * 1024:
+                path.unlink()
+        except Exception:
+            pass
+        f = open(path, "a", encoding="utf-8", buffering=1)
+        f.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} · {APP_NAME} v{VERSION} · iniciado =====\n")
+        faulthandler.enable(file=f, all_threads=True)
+
+        def hook(tp, val, tb):
+            f.write("Erro não tratado:\n" + "".join(traceback.format_exception(tp, val, tb)))
+
+        def thook(args):
+            f.write(f"Erro na thread {args.thread.name if args.thread else '?'}:\n"
+                    + "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)))
+
+        sys.excepthook = hook
+        threading.excepthook = thook
+        if sys.stderr is None:
+            sys.stderr = f
+        if sys.stdout is None:
+            sys.stdout = f
+        setup_crash_log.file = f
+    except Exception:
+        pass
+
+
 def main():
+    setup_crash_log()
     if "--admin" in sys.argv and IS_WIN and not is_admin():
         if relaunch_as_admin():
             return
