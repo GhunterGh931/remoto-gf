@@ -1479,6 +1479,11 @@ async function checkAppUpdate(manual=false){
   }
 }
 setTimeout(()=>checkAppUpdate(false),3000);
+// verifica de novo a cada 30 min e quando o app volta para a tela
+let lastUpdCheck=Date.now();
+function autoUpdCheck(){ if(Date.now()-lastUpdCheck>30*60*1000){ lastUpdCheck=Date.now(); checkAppUpdate(false); } }
+setInterval(autoUpdCheck,5*60*1000);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) autoUpdCheck(); });
 
 /* ============================================================ início */
 applyS(); show('mouse');

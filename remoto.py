@@ -2552,7 +2552,8 @@ def run_gui(hub, start_hidden=False):
                             if messagebox.askyesno(APP_NAME, f"Nova versão disponível no GitHub: v{lv} (atual: v{info['current']}).\n\nDeseja baixar e instalar agora?"):
                                 aplicar_atualizacao(info)
                         else:
-                            if tray:
+                            if tray and upd_state.get("notified_ver") != lv:
+                                upd_state["notified_ver"] = lv
                                 try:
                                     tray.notify(f"Versão v{lv} disponível no GitHub! Clique em Atualizar na janela.", "Atualização disponível")
                                 except Exception:
@@ -2583,6 +2584,12 @@ def run_gui(hub, start_hidden=False):
     root.protocol("WM_DELETE_WINDOW", on_close)
     redraw()
     root.after(2500, lambda: verificar_atualizacao(False))
+
+    def checagem_periodica():
+        verificar_atualizacao(False)
+        root.after(30 * 60 * 1000, checagem_periodica)  # verifica de novo a cada 30 minutos
+
+    root.after(30 * 60 * 1000, checagem_periodica)
     if start_hidden:
         if tray:
             root.withdraw()
