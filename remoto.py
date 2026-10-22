@@ -31,8 +31,57 @@ from aiohttp import web, WSMsgType
 
 APP_NAME = "Remoto GF"
 VERSION = "1.0"
+GITHUB_REPO = "GhunterGh931/remoto-gf"
 IS_WIN = sys.platform == "win32"
 FROZEN = getattr(sys, "frozen", False)
+
+
+def _ver_tuple(v: str) -> tuple:
+    import re
+    nums = [int(x) for x in re.findall(r"\d+", str(v or "0"))]
+    return tuple(nums) if nums else (0,)
+
+
+def current_version(cfg: dict | None = None) -> str:
+    v = VERSION
+    if cfg and cfg.get("versao_instalada"):
+        cv = str(cfg["versao_instalada"]).lstrip("vV")
+        if _ver_tuple(cv) > _ver_tuple(v):
+            v = cv
+    return v
+
+
+def check_github_update(cfg: dict | None = None) -> dict:
+    """Consulta a última release publicada no GitHub e compara com a versão local."""
+    import urllib.request
+    cur = current_version(cfg)
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+    req = urllib.request.Request(url, headers={
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "RemotoGF-Updater",
+    })
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    tag = str(data.get("tag_name") or "").lstrip("vV")
+    exe_url = ""
+    apk_url = ""
+    for a in data.get("assets") or []:
+        name = (a.get("name") or "").lower()
+        dl = a.get("browser_download_url") or ""
+        if name.endswith(".exe"):
+            exe_url = dl
+        elif name.endswith(".apk"):
+            apk_url = dl
+    has_new = bool(tag) and (_ver_tuple(tag) > _ver_tuple(cur))
+    return {
+        "has_new": has_new,
+        "current": cur,
+        "latest": tag or cur,
+        "html_url": data.get("html_url") or f"https://github.com/{GITHUB_REPO}/releases/latest",
+        "exe_url": exe_url,
+        "apk_url": apk_url,
+        "body": data.get("body") or "",
+    }
 
 # ------------------------------------------------------------------ caminhos e config
 
@@ -1120,7 +1169,7 @@ class Hub:
         log(f"Conectado: {name} ({req.remote})")
         mons = await self.loop.run_in_executor(self.scr_exec, self.scr.list) if self.scr.ok else []
         await self.send(ws, {
-            "t": "hello", "pc": platform.node(), "versao": VERSION, "admin": self.admin,
+            "t": "hello", "pc": platform.node(), "versao": current_version(self.cfg), "admin": self.admin,
             "recursos": self.features(), "monitores": len(mons) or 1, "https_port": self.https_port,
             "mac": mac_addr(),
             "apps": [a.get("nome", "?") for a in self.cfg.get("apps", [])],
@@ -2077,6 +2126,58 @@ def run_gui(hub, start_hidden=False):
             if relaunch_as_admin():
                 cmds.put("quit")
         mkbtn(row2, "Reabrir como admin", as_admin)
+
+    upd_state = {"info": None, "checking": False}
+
+    def aplicar_atualizacao(info):
+        latest = info.get("latest") or ""
+        exe_url = info.get("exe_url") or ""
+        repo_git = resource_dir() / ".git"
+        try:
+            if not FROZEN and repo_git.exists():
+                r = subprocess.run(["git", "pull", "origin", "main"], cwd=str(resource_dir()),
+                                   capture_output=True, text=True, timeout=30)
+                if r.returncode == 0:
+                    hub.cfg["versao_instalada"] = latest
+                    save_config(hub.cfg)
+                    if messagebox.askyesno(APP_NAME, f"Código atualizado para v{latest} via Git!\n\nDeseja reiniciar o Remoto GF agora para aplicar?"):
+                        subprocess.Popen([sys.executable, str(Path(__file__).resolve())] + sys.argv[1:])
+                        cmds.put("quit")
+                    return
+            if exe_url and IS_WIN:
+                import urllib.request
+                import tempfile
+                dest = Path(tempfile.gettempdir()) / f"RemotoGF-Instalador-{latest}.exe"
+                upd_btn.configure(text="⏳ Baixando atualização...")
+                root.update_idletasks()
+                urllib.request.urlretrieve(exe_url, str(dest))
+                hub.cfg["versao_instalada"] = latest
+                save_config(hub.cfg)
+                os.startfile(str(dest))  # noqa
+                cmds.put("quit")
+                return
+            webbrowser.open(info.get("html_url") or f"https://github.com/{GITHUB_REPO}/releases/latest")
+        except Exception as e:
+            messagebox.showerror(APP_NAME, f"Erro ao atualizar: {e}")
+            upd_btn.configure(text="🔄 Atualizar")
+
+    def verificar_atualizacao(manual=True):
+        if upd_state["checking"]:
+            return
+        upd_state["checking"] = True
+        if manual:
+            upd_btn.configure(text="⏳ Verificando...")
+
+        def _worker():
+            try:
+                info = check_github_update(hub.cfg)
+                cmds.put(("update_res", manual, info, None))
+            except Exception as e:
+                cmds.put(("update_res", manual, None, str(e)))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    upd_btn = mkbtn(row2, "🔄 Atualizar", lambda: verificar_atualizacao(True))
     mkbtn(row2, "Sair", lambda: cmds.put("quit"), accent=True)
 
     tray = None
@@ -2148,6 +2249,30 @@ def run_gui(hub, start_hidden=False):
                             tray.notify(f"Salvo em Downloads\\Remoto GF: {nomes}", "Arquivo recebido do celular")
                         except Exception:
                             pass
+                elif isinstance(c, tuple) and c[0] == "update_res":
+                    _, manual, info, err = c
+                    upd_state["checking"] = False
+                    if err or not info:
+                        upd_btn.configure(text="🔄 Atualizar")
+                        if manual:
+                            messagebox.showerror(APP_NAME, f"Não foi possível verificar no GitHub:\n{err}")
+                    elif info.get("has_new"):
+                        upd_state["info"] = info
+                        lv = info["latest"]
+                        upd_btn.configure(text=f"⬆️ Atualizar (v{lv})", bg="#25b869", fg="#111")
+                        if manual:
+                            if messagebox.askyesno(APP_NAME, f"Nova versão disponível no GitHub: v{lv} (atual: v{info['current']}).\n\nDeseja baixar e instalar agora?"):
+                                aplicar_atualizacao(info)
+                        else:
+                            if tray:
+                                try:
+                                    tray.notify(f"Versão v{lv} disponível no GitHub! Clique em Atualizar na janela.", "Atualização disponível")
+                                except Exception:
+                                    pass
+                    else:
+                        upd_btn.configure(text="🔄 Atualizar")
+                        if manual:
+                            messagebox.showinfo(APP_NAME, f"Você já está na versão mais recente (v{info['current']})!")
         except queue.Empty:
             pass
         if hub.dirty:
@@ -2169,6 +2294,7 @@ def run_gui(hub, start_hidden=False):
 
     root.protocol("WM_DELETE_WINDOW", on_close)
     redraw()
+    root.after(2500, lambda: verificar_atualizacao(False))
     if start_hidden:
         if tray:
             root.withdraw()

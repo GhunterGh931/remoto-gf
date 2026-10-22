@@ -39,6 +39,10 @@ jobs:
           python-version: '3.12'
       - name: Dependências
         run: pip install -r requirements.txt pyinstaller
+      - name: Injetar versão no código
+        shell: pwsh
+        run: |
+          (Get-Content remoto.py -Raw) -replace 'VERSION = "[^"]*"', 'VERSION = "1.0.${{ github.run_number }}"' | Set-Content remoto.py -Encoding UTF8
       - name: Gerar RemotoGF.exe
         run: >
           pyinstaller --noconfirm --onefile --windowed --name RemotoGF --icon icon.ico

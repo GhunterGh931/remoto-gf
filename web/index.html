@@ -451,6 +451,7 @@ nav button.active{color:var(--acc);background:var(--accbg)}
     <input id="devname" placeholder="Nome deste celular" style="margin-bottom:12px">
     <button class="pri" id="pairBtn" style="width:100%">Conectar</button>
     <button id="pairWolBtn" class="hidden" style="width:100%;margin-top:8px;background:var(--card2)">⚡ Ligar último PC (Wake-on-LAN)</button>
+    <button id="pairUpdBtn" onclick="checkAppUpdate(true)" style="width:100%;margin-top:8px;background:transparent;border:1px solid var(--line);color:var(--mut);font-size:13px;padding:9px">🔄 Verificar atualização no GitHub</button>
     <p class="err" id="pairErr"></p>
   </div>
 </div>
@@ -1083,6 +1084,8 @@ function renderS(){
       h('div',{class:'srow link',onclick:()=>{ location.href=`https://${location.hostname}:${hp}/#t=${encodeURIComponent(token||'')}`; }},
         h('div',{class:'st'},h('b',{},'Abrir em modo seguro (HTTPS)'),h('small',{},'Libera giroscópio e tela sempre ligada em todos os celulares. Na primeira vez o navegador avisa sobre o certificado: toque em Avançado e Continuar.')),h('span',{class:'chev'},'›')));
     body.append(sec('Este celular'),
+      h('div',{class:'srow link',onclick:()=>checkAppUpdate(true)},
+        h('div',{class:'st'},h('b',{},'🔄 Verificar atualização no GitHub'),h('small',{},`PC: v${hello.versao||'?'}`+(APP?` · App celular: v${NA.version()}`:' · Baixar APK mais recente'))),h('span',{class:'chev'},'›')),
       h('div',{class:'srow link',onclick:()=>ask('Desconectar este celular','Você vai precisar do PIN para conectar de novo.',()=>{ LS.set('token',null); token=null; try{ws.close()}catch(e){} closeSettings(); showPair(); })},
         h('div',{class:'st'},h('b',{style:'color:var(--err)'},'Desconectar este celular'),h('small',{},`${hello.pc||'PC'} · versão ${hello.versao||'?'}`+(APP?` · app ${NA.version()}`:'')))));
     if(APP) body.append(h('div',{class:'srow link',onclick:()=>{ closeSettings(); token=null; LS.set('token',null); try{ws.onclose=null;ws.close()}catch(e){} setStatus(false); showPair('Escolha o PC e digite o PIN dele.'); }},
@@ -1245,6 +1248,62 @@ $('#mirrorStop').onclick=()=>{ try{NA.stopBeControlled()}catch(e){} tick(); };
 window.onControlState=on=>{ updateMirror(); toast(on?'Compartilhando a tela':'Compartilhamento encerrado', on?'O PC já pode ver e controlar este celular.':'O PC não vê mais o celular.', on?'ok':'info'); };
 window.onControlDenied=()=>{ toast('Não iniciou','Você não permitiu a transmissão da tela.','warn'); updateMirror(); };
 document.addEventListener('pointerdown',()=>{ wake(); lockPortrait(); },{once:true});
+
+/* ============================================================ atualização pelo GitHub */
+const GH_REPO='GhunterGh931/remoto-gf';
+function verNums(v){ return String(v||'0').replace(/^v/i,'').split('.').map(n=>parseInt(n,10)||0); }
+function isNewerVer(latest,current){
+  if(!current||current==='?') return false;
+  const a=verNums(latest), b=verNums(current);
+  for(let i=0;i<Math.max(a.length,b.length);i++){
+    const x=a[i]||0, y=b[i]||0;
+    if(x>y) return true;
+    if(x<y) return false;
+  }
+  return false;
+}
+async function checkAppUpdate(manual=false){
+  if(manual) toast('Verificando no GitHub...','Procurando nova versão do Remoto GF.','info');
+  try{
+    const r=await fetch(`https://api.github.com/repos/${GH_REPO}/releases/latest`,{headers:{'Accept':'application/vnd.github+json'},cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const data=await r.json();
+    const latest=String(data.tag_name||'').replace(/^v/i,'');
+    let apkUrl=`https://github.com/${GH_REPO}/releases/latest/download/RemotoGF.apk`;
+    for(const a of (data.assets||[])){
+      if(String(a.name||'').toLowerCase().endsWith('.apk')&&a.browser_download_url) apkUrl=a.browser_download_url;
+    }
+    const appVer=APP?(NA.version()||'?'):null;
+    const pcVer=hello.versao||null;
+    const newApp=APP&&appVer&&appVer!=='?'&&isNewerVer(latest,appVer);
+    const newPc=pcVer&&isNewerVer(latest,pcVer);
+    const dlApk=()=>{
+      if(APP&&NA.downloadFile){
+        NA.downloadFile(apkUrl,`RemotoGF-v${latest}.apk`);
+        toast('Baixando atualização','Toque na notificação de download concluído do Android para instalar o novo APK.','ok',true);
+      } else {
+        window.open(apkUrl,'_blank');
+      }
+    };
+    if(newApp){
+      ask(`Nova versão v${latest} disponível!`,
+        `A versão instalada no celular é v${appVer} e a mais recente no GitHub é v${latest}.\n\nDeseja baixar e instalar a atualização agora?`,
+        dlApk,'Baixar e atualizar');
+    } else if(newPc&&manual){
+      ask(`Atualização v${latest} disponível`,
+        `Seu app já está na v${appVer||latest}, mas o PC está na v${pcVer}. Clique em "🔄 Atualizar" na janela do Remoto GF no PC ou baixe o APK abaixo.`,
+        dlApk,'Baixar APK mesmo assim');
+    } else if(manual){
+      const cur=APP?`v${appVer}`:(pcVer?`v${pcVer}`:'navegador');
+      ask('Tudo atualizado! ✅',
+        `Última versão no GitHub: v${latest} (sua versão: ${cur}).\n\nSe quiser baixar e reinstalar o APK mesmo assim, toque abaixo.`,
+        dlApk,'Baixar APK');
+    }
+  }catch(e){
+    if(manual) toast('Erro ao verificar atualização','Verifique se o celular tem internet: '+e.message,'err');
+  }
+}
+setTimeout(()=>checkAppUpdate(false),3000);
 
 /* ============================================================ início */
 applyS(); show('mouse');
