@@ -541,13 +541,31 @@ class Volume:
     def output_devices(self):
         if not self.ok:
             return []
-        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, IAudioMeterInformation
-        from comtypes import CLSCTX_ALL
+        from pycaw.pycaw import AudioUtilities, IAudioMeterInformation
         out = []
         default_id = ""
+        default_name = "Alto-falantes / Saída Padrão"
+        default_peak = 0.0
         try:
             sp = AudioUtilities.GetSpeakers()
             default_id = getattr(sp, "id", "") or sp.GetId()
+            default_name = getattr(sp, "FriendlyName", None) or getattr(sp, "friendly_name", None) or default_name
+        except Exception:
+            pass
+        try:
+            for s in AudioUtilities.GetAllSessions():
+                try:
+                    meter = s._ctl.QueryInterface(IAudioMeterInformation)
+                    p = float(meter.GetPeakValue())
+                    if p > default_peak:
+                        default_peak = p
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        v_cur = {"v": 0.5, "m": False}
+        try:
+            v_cur = self.get()
         except Exception:
             pass
         try:
@@ -556,52 +574,43 @@ class Volume:
             devs = []
         for d in devs:
             try:
-                st_name = str(getattr(d, "state", ""))
-                if "Active" not in st_name and getattr(d, "state", 1) != 1:
+                st_val = getattr(d, "state", None)
+                if st_val is not None and "Active" not in str(st_val) and st_val != 1:
+                    continue
+                dev_id = getattr(d, "id", "") or ""
+                if not dev_id:
+                    continue
+                # Em dispositivos Windows CoreAudio, IDs "{0.0.0.00000000}.{guid}" são saídas (Render),
+                # e "{0.0.1.00000000}.{guid}" são microfones/entradas (Capture).
+                if dev_id.startswith("{0.0.1."):
                     continue
                 direction = str(getattr(d, "data_flow", getattr(d, "direction", "Render")))
                 if "Capture" in direction or "Input" in direction:
                     continue
-                dev_id = getattr(d, "id", "")
                 name = getattr(d, "FriendlyName", None) or getattr(d, "friendly_name", None) or "Saída de áudio"
-                is_def = bool(dev_id and default_id and dev_id == default_id)
-                peak = 0.0
-                vol = None
-                muted = False
-                raw = getattr(d, "_dev", d)
-                try:
-                    iface_m = raw.Activate(IAudioMeterInformation._iid_, CLSCTX_ALL, None)
-                    meter = ctypes.cast(iface_m, ctypes.POINTER(IAudioMeterInformation))
-                    peak = round(float(meter.GetPeakValue()), 3)
-                except Exception:
-                    pass
-                try:
-                    iface_v = raw.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-                    ep = ctypes.cast(iface_v, ctypes.POINTER(IAudioEndpointVolume))
-                    vol = round(float(ep.GetMasterVolumeLevelScalar()), 3)
-                    muted = bool(ep.GetMute())
-                except Exception:
-                    pass
-                if vol is None and not is_def:
-                    continue
+                is_def = bool(default_id and dev_id == default_id)
+                peak = round(default_peak, 3) if is_def else 0.0
                 out.append({
                     "id": dev_id,
                     "nome": name,
                     "padrao": is_def,
                     "peak": peak,
                     "playing": peak > 0.002,
-                    "v": vol if vol is not None else self.get()["v"],
-                    "m": muted,
+                    "v": v_cur["v"],
+                    "m": v_cur["m"] if is_def else False,
                 })
             except Exception:
                 continue
         if not out:
-            try:
-                v = self.get()
-                out.append({"id": default_id or "default", "nome": "Alto-falantes / Saída Padrão",
-                            "padrao": True, "peak": 0.0, "playing": False, "v": v["v"], "m": v["m"]})
-            except Exception:
-                pass
+            out.append({
+                "id": default_id or "default",
+                "nome": default_name,
+                "padrao": True,
+                "peak": round(default_peak, 3),
+                "playing": default_peak > 0.002,
+                "v": v_cur["v"],
+                "m": v_cur["m"],
+            })
         out.sort(key=lambda x: (not x["padrao"], not x["playing"], x["nome"].lower()))
         return out
 
@@ -643,22 +652,11 @@ class Volume:
             return False
 
     def device_volume_set(self, dev_id: str, v: float):
-        if not self.ok or not dev_id:
+        if not self.ok:
             return
-        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-        from comtypes import CLSCTX_ALL
-        v = max(0.0, min(1.0, float(v)))
-        for d in AudioUtilities.GetAllDevices():
-            if getattr(d, "id", "") == dev_id:
-                raw = getattr(d, "_dev", d)
-                iface = raw.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-                ep = ctypes.cast(iface, ctypes.POINTER(IAudioEndpointVolume))
-                ep.SetMasterVolumeLevelScalar(v, None)
-                if v > 0 and ep.GetMute():
-                    ep.SetMute(0, None)
-                return
+        self.set(v)
 
-    async def media_info(self) -> dict:
+    async def media_info(self, win=None, sessions=None) -> dict:
         if not IS_WIN:
             return {"ok": False}
         try:
@@ -669,60 +667,83 @@ class Volume:
                 all_s = mgr.get_sessions()
                 if all_s and len(all_s) > 0:
                     sess = all_s[0]
-            if not sess:
-                return {"ok": False}
-            title, artist, album = "", "", ""
-            try:
-                props = await sess.try_get_media_properties_async()
-                if props:
-                    title = props.title or ""
-                    artist = props.artist or ""
-                    album = props.album_title or ""
-            except Exception:
-                pass
-            playing = False
-            try:
-                pb = sess.get_playback_info()
-                if pb:
-                    playing = (int(pb.playback_status) == 4)  # 4 = Playing
-            except Exception:
-                pass
-            pos, dur, can_seek = 0.0, 0.0, False
-            try:
-                tl = sess.get_timeline_properties()
-                if tl:
-                    pos = max(0.0, tl.position.total_seconds())
-                    dur = max(0.0, tl.end_time.total_seconds() - tl.start_time.total_seconds())
-                    if playing and tl.last_updated_time:
-                        import datetime
-                        now = datetime.datetime.now(datetime.timezone.utc)
-                        elapsed = (now - tl.last_updated_time).total_seconds()
-                        if 0 < elapsed < 3600:
-                            pos = min(dur if dur > 0 else pos + elapsed, pos + elapsed)
-                    can_seek = dur > 0
-            except Exception:
-                pass
-            app_id = ""
-            try:
-                app_id = sess.source_app_user_model_id or ""
-                if "!" in app_id:
-                    app_id = app_id.split("!")[0]
-                app_id = friendly_name(app_id.split("\\")[-1].split(".")[-1] if "." in app_id and not app_id.lower().endswith(".exe") else app_id)
-            except Exception:
-                pass
-            return {
-                "ok": bool(title or artist or dur > 0 or playing),
-                "title": title or "Reproduzindo mídia",
-                "artist": artist,
-                "album": album,
-                "app": app_id,
-                "playing": playing,
-                "pos": round(pos, 1),
-                "dur": round(dur, 1),
-                "can_seek": can_seek,
-            }
+            if sess:
+                title, artist, album = "", "", ""
+                try:
+                    props = await sess.try_get_media_properties_async()
+                    if props:
+                        title = props.title or ""
+                        artist = props.artist or ""
+                        album = props.album_title or ""
+                except Exception:
+                    pass
+                playing = False
+                try:
+                    pb = sess.get_playback_info()
+                    if pb:
+                        playing = (int(pb.playback_status) == 4)  # 4 = Playing
+                except Exception:
+                    pass
+                pos, dur, can_seek = 0.0, 0.0, False
+                try:
+                    tl = sess.get_timeline_properties()
+                    if tl:
+                        pos = max(0.0, tl.position.total_seconds())
+                        dur = max(0.0, tl.end_time.total_seconds() - tl.start_time.total_seconds())
+                        if playing and tl.last_updated_time:
+                            import datetime
+                            now = datetime.datetime.now(datetime.timezone.utc)
+                            elapsed = (now - tl.last_updated_time).total_seconds()
+                            if 0 < elapsed < 3600:
+                                pos = min(dur if dur > 0 else pos + elapsed, pos + elapsed)
+                        can_seek = dur > 0
+                except Exception:
+                    pass
+                app_id = ""
+                try:
+                    app_id = sess.source_app_user_model_id or ""
+                    if "!" in app_id:
+                        app_id = app_id.split("!")[0]
+                    app_id = friendly_name(app_id.split("\\")[-1].split(".")[-1] if "." in app_id and not app_id.lower().endswith(".exe") else app_id)
+                except Exception:
+                    pass
+                if title or artist or dur > 0 or playing:
+                    return {
+                        "ok": True,
+                        "title": title or "Reproduzindo mídia",
+                        "artist": artist,
+                        "album": album,
+                        "app": app_id,
+                        "playing": playing,
+                        "pos": round(pos, 1),
+                        "dur": round(dur, 1),
+                        "can_seek": can_seek,
+                    }
         except Exception:
-            return {"ok": False}
+            pass
+        # Fallback: identifica o título da janela do aplicativo que está emitindo áudio no momento
+        try:
+            sess_list = sessions if sessions is not None else self.sessions()
+            active = [s for s in sess_list if s.get("playing")] or sess_list
+            if active and win:
+                wins = win.list()
+                for s in active:
+                    for w in wins:
+                        if w["pid"] == s["pid"] and w.get("titulo"):
+                            return {
+                                "ok": True,
+                                "title": w["titulo"],
+                                "artist": "Use os botões abaixo (-30s / -10s / +10s / +30s) para avançar ou voltar",
+                                "album": "",
+                                "app": s["nome"],
+                                "playing": bool(s.get("playing")),
+                                "pos": 0.0,
+                                "dur": 0.0,
+                                "can_seek": False,
+                            }
+        except Exception:
+            pass
+        return {"ok": False}
 
     async def media_seek(self, pos_sec: float | None = None, step_sec: float | None = None, inp=None, win=None) -> bool:
         if IS_WIN:
@@ -1557,19 +1578,18 @@ class Hub:
             self._last_vol = (v["v"], v["m"])
             return await self.broadcast({"t": "vol", **v})
         if t == "sessions":
-            devs, sess, minfo = await asyncio.gather(
-                self.run_sys(self.vol.output_devices),
-                self.run_sys(self.vol.sessions),
-                self.vol.media_info(),
-            )
+            devs = await self.run_sys(self.vol.output_devices)
+            sess = await self.run_sys(self.vol.sessions)
+            minfo = await self.vol.media_info(win=self.win, sessions=sess)
             return await self.send(ws, {"t": "sessions", "list": sess, "devices": devs, "media": minfo})
         if t == "audio_dev_set":
             await self.run_sys(self.vol.set_default_device, str(d.get("id", "")))
             v = await self.run_sys(self.vol.get)
             devs = await self.run_sys(self.vol.output_devices)
+            sess = await self.run_sys(self.vol.sessions)
+            minfo = await self.vol.media_info(win=self.win, sessions=sess)
             await self.broadcast({"t": "vol", **v})
-            return await self.send(ws, {"t": "sessions", "list": await self.run_sys(self.vol.sessions),
-                                        "devices": devs, "media": await self.vol.media_info()})
+            return await self.send(ws, {"t": "sessions", "list": sess, "devices": devs, "media": minfo})
         if t == "audio_dev_vol":
             await self.run_sys(self.vol.device_volume_set, str(d.get("id", "")), _num(d, "v", 0.5))
             return
@@ -1581,7 +1601,7 @@ class Hub:
                 step_sec=float(step) if step is not None else None,
                 inp=self.inp, win=self.win)
             await asyncio.sleep(0.15)
-            return await self.send(ws, {"t": "media_info", "media": await self.vol.media_info()})
+            return await self.send(ws, {"t": "media_info", "media": await self.vol.media_info(win=self.win)})
         if t == "session_set":
             return await self.run_sys(self.vol.session_set, d.get("pid"), _num(d, "v"))
         if t == "session_mute":
