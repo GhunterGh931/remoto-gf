@@ -235,6 +235,15 @@ nav button.active{color:var(--acc);background:var(--accbg)}
 #found small{color:var(--mut)}
 #scrBox.appfs{position:fixed;inset:0;z-index:60;border-radius:0}
 #scrBox.appfs img{width:auto;max-width:100%;max-height:100%}
+/* botões estilo DaVinci Resolve */
+#gridResolve button{flex-direction:column;gap:5px;padding:10px 4px;min-height:68px;position:relative;border:1px solid rgba(255,255,255,.05);background:linear-gradient(180deg,#232730,#1b1e26)}
+#gridResolve button:active{border-color:var(--acc);background:var(--accbg)}
+#gridResolve button svg.ri{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;color:#e3e7f0}
+#gridResolve button.r-acc svg.ri{color:var(--acc)}
+#gridResolve button.r-red svg.ri{color:#ff5b5b}
+#gridResolve button.r-cyan svg.ri{color:#4cc9f0}
+#gridResolve button .rl{font-size:11.5px;line-height:1.15;color:var(--fg);font-weight:500}
+#gridResolve button .rk{position:absolute;top:4px;right:5px;font-size:9.5px;padding:1px 4px;border-radius:4px;background:rgba(0,0,0,.38);color:var(--mut);font-family:monospace}
 </style>
 </head>
 <body>
@@ -865,11 +874,76 @@ fillGrid('#gridGeral',[
   ['Copiar','ctrl+c'],['Colar','ctrl+v'],['Recortar','ctrl+x'],['Desfazer','ctrl+z'],['Refazer','ctrl+y'],['Selec. tudo','ctrl+a'],
   ['Salvar','ctrl+s'],['Alt + Tab','alt+tab'],['Fechar app','alt+f4'],['Print','win+shift+s'],['Gerenc. tarefas','ctrl+shift+esc'],['Explorador','win+e'],
   ['Emojis','win+.'],['Histórico copiar','win+v'],['Iniciar','win']]);
-fillGrid('#gridResolve',[
-  ['Play / Pause','space'],['J (voltar)','j'],['K (parar)','k'],['L (avançar)','l'],['Frame ←','left'],['Frame →','right'],
-  ['Corte anterior','up'],['Próximo corte','down'],['Marcar In','i'],['Marcar Out','o'],['Marcador','m'],['Cortar no ponto','ctrl+b'],
-  ['Seleção (A)','a'],['Lâmina (B)','b'],['Snap (N)','n'],['Ajustar timeline','shift+z'],['Zoom +','ctrl+='],['Zoom -','ctrl+-'],
-  ['Desfazer','ctrl+z'],['Refazer','ctrl+shift+z'],['Salvar projeto','ctrl+s']]);
+
+const R_ICONS={
+  play:'<polygon points="5 4 15 12 5 20 5 4" fill="currentColor" stroke="none"/><line x1="18" y1="5" x2="18" y2="19"/><line x1="21" y1="5" x2="21" y2="19"/>',
+  j:'<polygon points="11 19 2 12 11 5 11 19" fill="currentColor" stroke="none"/><polygon points="22 19 13 12 22 5 22 19" fill="currentColor" stroke="none"/>',
+  k:'<rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" stroke="none"/>',
+  l:'<polygon points="13 19 22 12 13 5 13 19" fill="currentColor" stroke="none"/><polygon points="2 19 11 12 2 5 2 19" fill="currentColor" stroke="none"/>',
+  fleft:'<line x1="5" y1="5" x2="5" y2="19"/><polygon points="19 19 9 12 19 5 19 19" fill="currentColor" stroke="none"/>',
+  fright:'<line x1="19" y1="5" x2="19" y2="19"/><polygon points="5 19 15 12 5 5 5 19" fill="currentColor" stroke="none"/>',
+  prevcut:'<line x1="4" y1="5" x2="4" y2="19"/><polyline points="14 6 8 12 14 18"/><line x1="8" y1="12" x2="20" y2="12"/>',
+  nextcut:'<line x1="20" y1="5" x2="20" y2="19"/><polyline points="10 6 16 12 10 18"/><line x1="4" y1="12" x2="16" y2="12"/>',
+  markin:'<path d="M10 4H5v16h5"/><polyline points="13 8 9 12 13 16"/><line x1="9" y1="12" x2="20" y2="12"/>',
+  markout:'<path d="M14 4h5v16h-5"/><polyline points="11 8 15 12 11 16"/><line x1="4" y1="12" x2="15" y2="12"/>',
+  marker:'<path d="M12 3l6 6v6l-6 6-6-6V9l6-6z"/><circle cx="12" cy="11" r="2" fill="currentColor"/>',
+  split:'<rect x="2" y="8" width="7" height="8" rx="1"/><rect x="15" y="8" width="7" height="8" rx="1"/><line x1="12" y1="3" x2="12" y2="21" stroke-dasharray="2.5 2.5"/>',
+  arrow:'<path d="M5 3l14 8-6.5 1.8L9 19.5z" fill="currentColor"/>',
+  blade:'<rect x="3" y="6" width="18" height="9" rx="1.5"/><circle cx="8" cy="10.5" r="1.3" fill="currentColor"/><circle cx="16" cy="10.5" r="1.3" fill="currentColor"/><line x1="11" y1="10.5" x2="13" y2="10.5"/><path d="M2 18h20"/>',
+  trim:'<line x1="12" y1="4" x2="12" y2="20"/><path d="M8 8H4v8h4M16 8h4v8h-4"/><polyline points="7 10 5 12 7 14"/><polyline points="17 10 19 12 17 14"/>',
+  dyn:'<rect x="3" y="6" width="18" height="12" rx="2"/><polygon points="10 9 16 12 10 15" fill="currentColor" stroke="none"/><line x1="7" y1="9" x2="7" y2="15"/>',
+  snap:'<path d="M6 4v7a6 6 0 0 0 12 0V4"/><line x1="6" y1="8" x2="10" y2="8"/><line x1="14" y1="8" x2="18" y2="8"/>',
+  link:'<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  insert:'<path d="M12 4v10"/><polyline points="8 10 12 14 16 10"/><rect x="3" y="16" width="7" height="5" rx="1"/><rect x="14" y="16" width="7" height="5" rx="1"/>',
+  overwrite:'<path d="M12 4v9"/><polyline points="8 9 12 13 16 9"/><rect x="3" y="15" width="18" height="6" rx="1"/><rect x="8" y="15" width="8" height="6" fill="currentColor" opacity=".35"/>',
+  ripldel:'<line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/><polyline points="5 8 2 12 5 16"/><polyline points="19 8 22 12 19 16"/>',
+  fit:'<polyline points="4 9 4 4 9 4"/><polyline points="20 9 20 4 15 4"/><polyline points="4 15 4 20 9 20"/><polyline points="20 15 20 20 15 20"/><line x1="7" y1="12" x2="17" y2="12"/>',
+  zin:'<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/>',
+  zout:'<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/>',
+  undo:'<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>',
+  redo:'<path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/>',
+  save:'<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
+  full:'<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>',
+};
+(()=>{
+  const items=[
+    ['Seleção','a','arrow','A','r-acc'],
+    ['Lâmina (Blade)','b','blade','B','r-red'],
+    ['Trim Edit','t','trim','T','r-acc'],
+    ['Dynamic Trim','w','dyn','W',''],
+    ['Imã (Snap)','n','snap','N','r-cyan'],
+    ['Vincular Clipes','ctrl+shift+l','link','⌃⇧L',''],
+    ['Cortar (Razor)','ctrl+b','split','⌃B','r-red'],
+    ['Excluir Ripple','shift+backspace','ripldel','⇧⌫','r-red'],
+    ['Inserir (F9)','f9','insert','F9','r-cyan'],
+    ['Sobrescrever','f10','overwrite','F10','r-acc'],
+    ['Marcar In','i','markin','I','r-cyan'],
+    ['Marcar Out','o','markout','O','r-cyan'],
+    ['Marcador','m','marker','M','r-cyan'],
+    ['Corte Anterior','up','prevcut','↑',''],
+    ['Próximo Corte','down','nextcut','↓',''],
+    ['Frame ←','left','fleft','←',''],
+    ['Play / Pause','space','play','␣','r-acc'],
+    ['Frame →','right','fright','→',''],
+    ['J (Voltar)','j','j','J',''],
+    ['K (Parar)','k','k','K','r-red'],
+    ['L (Avançar)','l','l','L',''],
+    ['Zoom Timeline','shift+z','fit','⇧Z',''],
+    ['Zoom +','ctrl+=','zin','⌃+',''],
+    ['Zoom -','ctrl+-','zout','⌃-',''],
+    ['Desfazer','ctrl+z','undo','⌃Z',''],
+    ['Refazer','ctrl+shift+z','redo','⌃⇧Z',''],
+    ['Tela Cheia','ctrl+f','full','⌃F',''],
+  ];
+  const g=$('#gridResolve'); g.innerHTML='';
+  for(const [label,keys,ico, badge, cls] of items){
+    const b=h('button',{class:cls||'',onclick:()=>combo(keys,label)},
+      badge?h('span',{class:'rk'},badge):null,
+      h('span',{html:`<svg class="ri" viewBox="0 0 24 24">${R_ICONS[ico]||''}</svg>`}),
+      h('span',{class:'rl'},label));
+    g.append(b);
+  }
+})();
 fillGrid('#gridNav',[['← Voltar','alt+left'],['Avançar →','alt+right'],['Atualizar','f5'],['Página inicial','alt+home'],['Topo','home'],['Fim','end'],
   ['Rolar página','space'],['Buscar na página','ctrl+f'],['Tela cheia','f11']]);
 fillGrid('#gridAbas',[['Nova aba','ctrl+t'],['Fechar aba','ctrl+w'],['Reabrir aba','ctrl+shift+t'],['Aba anterior','ctrl+shift+tab'],['Próxima aba','ctrl+tab'],['Nova janela','ctrl+n'],
