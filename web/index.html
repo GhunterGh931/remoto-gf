@@ -112,10 +112,32 @@ input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;bac
 .media{display:grid;grid-template-columns:1fr 1fr 1.3fr 1fr 1fr;gap:8px}
 .media button{display:flex;justify-content:center;padding:16px 0;background:var(--card2)}
 .media .big{background:var(--acc);color:#16100c}
-.mix{display:flex;align-items:center;gap:10px;padding:4px 0}
-.mix .nm{width:100px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mix{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.mix:last-child{border-bottom:0}
+.mix .nm{width:115px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
 .mix input{flex:1}
 .mix button{padding:8px 10px;background:var(--card2)}
+.eqdot{width:8px;height:8px;border-radius:50%;background:var(--dim);flex:none;transition:transform .2s,background .2s}
+.eqdot.live{background:var(--ok);box-shadow:0 0 8px var(--ok);animation:eqp .8s infinite alternate}
+@keyframes eqp{from{transform:scale(.85)}to{transform:scale(1.25)}}
+.devrow{display:flex;flex-direction:column;gap:6px;padding:10px;border-radius:12px;background:var(--card2);margin-bottom:8px;border:1px solid transparent;transition:border-color .15s}
+.devrow.active{border-color:var(--acc);background:rgba(255,107,44,.09)}
+.devtop{display:flex;align-items:center;gap:8px;cursor:pointer}
+.devtop b{flex:1;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.devbadge{font-size:11px;padding:2px 8px;border-radius:99px;background:rgba(255,255,255,.07);color:var(--mut)}
+.devrow.active .devbadge{background:var(--acc);color:#111;font-weight:700}
+.meterbar{height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.meterfill{height:100%;background:linear-gradient(90deg,var(--ok),var(--acc));width:0%;transition:width .25s}
+.npbox{margin-bottom:10px;padding:10px 12px;border-radius:12px;background:var(--card2)}
+.nptop{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.nptop b{font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nptop small{color:var(--acc);font-size:11.5px;flex:none;font-weight:600}
+.npsub{color:var(--mut);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.timewrap{display:flex;align-items:center;gap:8px;margin-top:6px}
+.timewrap span{font-size:11.5px;color:var(--mut);font-variant-numeric:tabular-nums;min-width:38px}
+.timewrap span:last-child{text-align:right}
+.seekbtns{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
+.seekbtns button{padding:9px 4px;font-size:12.5px;background:var(--card2)}
 
 /* apps */
 .win{display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid var(--line)}
@@ -253,8 +275,31 @@ nav button.active{color:var(--acc);background:var(--accbg)}
         <button data-vstep="-0.05">- 5</button><button id="muteBtn">Mudo</button><button data-vstep="0.05">+ 5</button>
       </div>
     </div>
-    <div class="card"><h3>Controle de mídia</h3><div class="media" id="mediaRow"></div></div>
-    <div class="card"><h3>Volume por app</h3><div id="mixer"><div class="empty">Nenhum app tocando som</div></div></div>
+    <div class="card">
+      <h3>Tocando agora e tempo da mídia</h3>
+      <div class="npbox">
+        <div class="nptop"><b id="npTitle">Nenhuma mídia detectada</b><small id="npApp"></small></div>
+        <div class="npsub" id="npArtist">Abra uma música ou vídeo no PC para ver e controlar o tempo</div>
+        <div class="timewrap" id="seekWrap">
+          <span id="npPos">0:00</span>
+          <input type="range" id="mediaSeek" min="0" max="100" value="0" style="flex:1">
+          <span id="npDur">0:00</span>
+        </div>
+      </div>
+      <div class="media" id="mediaRow"></div>
+      <div class="seekbtns">
+        <button data-seek="-30">⏪ -30s</button>
+        <button data-seek="-10">⏪ -10s</button>
+        <button data-seek="10">+10s ⏩</button>
+        <button data-seek="30">+30s ⏩</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Dispositivos de saída de áudio</h3>
+      <div id="audioDevs"><div class="empty">Carregando saídas de áudio...</div></div>
+      <p class="hint">Toque em um dispositivo (fone, caixa de som, HDMI) para defini-lo como saída padrão do PC.</p>
+    </div>
+    <div class="card"><h3>Apps transmitindo áudio</h3><div id="mixer"><div class="empty">Nenhum app tocando som</div></div></div>
     <div class="card hidden" id="brightCard"><h3>Brilho da tela</h3><input type="range" id="bright" min="0" max="100"></div>
   </section>
 
@@ -603,7 +648,8 @@ function handle(m){
       $('#scrMon').innerHTML=''; for(let i=1;i<=(m.monitores||1);i++) $('#scrMon').append(h('option',{value:i},`Monitor ${i}`));
       buildLaunch(m.apps||[]); break;
     case 'vol': setVol(m.v,m.m); break;
-    case 'sessions': buildMixer(m.list); break;
+    case 'sessions': buildMixer(m.list); if(m.devices) buildAudioDevs(m.devices); if(m.media) updateMediaInfo(m.media); break;
+    case 'media_info': if(m.media) updateMediaInfo(m.media); break;
     case 'bright': if(m.v!=null){$('#brightCard').classList.remove('hidden'); $('#bright').value=m.v; rangeFill($('#bright'));} break;
     case 'windows': buildWins(m.list); break;
     case 'stats': setStats(m); break;
@@ -645,7 +691,7 @@ function show(k){
 function onPanel(k){
   for(const t of Object.values(timers)) clearInterval(t); timers={};
   stopScreen();
-  if(k==='midia'){send({t:'vol_get'});send({t:'sessions'});send({t:'bright_get'});timers.s=setInterval(()=>send({t:'sessions'}),3000);}
+  if(k==='midia'){send({t:'vol_get'});send({t:'sessions'});send({t:'bright_get'});timers.s=setInterval(()=>send({t:'sessions'}),1500);}
   if(k==='apps') send({t:'windows'});
   if(k==='energia'){send({t:'stats'});timers.e=setInterval(()=>send({t:'stats'}),3000);}
   if(k==='tela') startScreen();
@@ -876,14 +922,69 @@ $('#vol').addEventListener('change',e=>{ send({t:'vol_set',v:e.target.value/100}
 $$('[data-vstep]').forEach(b=>b.onclick=()=>{ send({t:'vol_step',d:+b.dataset.vstep}); tick(); });
 $('#muteBtn').onclick=()=>{ send({t:'vol_mute'}); tick(); };
 for(const [n,a,cls] of [['prev','prev'],['stop','stop'],['pp','play_pause','big'],['next','next'],['vol','mute']]){
-  $('#mediaRow').append(h('button',{class:cls||'',html:ic(n,26),onclick:()=>{ send({t:'media',a}); tick(); }}));
+  $('#mediaRow').append(h('button',{class:cls||'',html:ic(n,26),onclick:()=>{ send({t:'media',a}); setTimeout(()=>send({t:'sessions'}),250); tick(); }}));
+}
+let seekDrag=false, seekT=0;
+function fmtTime(sec){
+  sec=Math.max(0,Math.floor(sec||0));
+  const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60;
+  return h>0?`${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`:`${m}:${String(s).padStart(2,'0')}`;
+}
+function updateMediaInfo(m){
+  const sk=$('#mediaSeek');
+  if(!m||!m.ok){
+    $('#npTitle').textContent='Nenhuma mídia detectada';
+    $('#npArtist').textContent='Use os botões abaixo para controlar qualquer player ou vídeo';
+    $('#npApp').textContent='';
+    if(!seekDrag){ sk.max=100; sk.value=0; rangeFill(sk); $('#npPos').textContent='0:00'; $('#npDur').textContent='0:00'; }
+    return;
+  }
+  $('#npTitle').textContent=m.title||'Reproduzindo mídia';
+  $('#npArtist').textContent=[m.artist,m.album].filter(Boolean).join(' · ')||(m.playing?'▶ Em reprodução':'⏸ Pausado');
+  $('#npApp').textContent=m.app||'';
+  if(!seekDrag){
+    const dur=Math.max(1,Math.round(m.dur||0));
+    const pos=Math.min(dur,Math.max(0,Math.round(m.pos||0)));
+    sk.max=dur; sk.value=m.dur>0?pos:0; rangeFill(sk);
+    $('#npPos').textContent=fmtTime(m.pos||0);
+    $('#npDur').textContent=m.dur>0?fmtTime(m.dur):'--:--';
+  }
+}
+$('#mediaSeek').addEventListener('input',e=>{
+  seekDrag=true; rangeFill(e.target); $('#npPos').textContent=fmtTime(+e.target.value);
+  clearTimeout(seekT); seekT=setTimeout(()=>send({t:'media_seek',pos:+e.target.value}),80);
+});
+$('#mediaSeek').addEventListener('change',e=>{
+  send({t:'media_seek',pos:+e.target.value});
+  setTimeout(()=>{ seekDrag=false; },400);
+  tick();
+});
+$$('[data-seek]').forEach(b=>b.onclick=()=>{ send({t:'media_seek',step:+b.dataset.seek}); tick(); fb((+b.dataset.seek>0?'+':'')+b.dataset.seek+'s'); });
+function buildAudioDevs(devs){
+  const box=$('#audioDevs');
+  if(!devs||!devs.length){ box.innerHTML='<div class="empty">Nenhum dispositivo de áudio encontrado</div>'; return; }
+  if(box.contains(document.activeElement)&&document.activeElement.type==='range') return;
+  box.innerHTML='';
+  for(const d of devs){
+    const pct=Math.min(100,Math.round((d.peak||0)*120));
+    const badge=d.padrao?'Padrão':(d.playing?'Tocando':'Usar');
+    const row=h('div',{class:'devrow'+(d.padrao?' active':'')},
+      h('div',{class:'devtop',onclick:()=>{ send({t:'audio_dev_set',id:d.id}); tick(); fb('Saída: '+d.nome); }},
+        h('span',{class:'eqdot'+(d.playing?' live':'')}),
+        h('b',{},d.nome),
+        h('span',{class:'devbadge'},badge)),
+      h('div',{class:'meterbar'},h('div',{class:'meterfill',style:`width:${pct}%`}))
+    );
+    box.append(row);
+  }
 }
 function buildMixer(list){ const box=$('#mixer'); if(!list||!list.length){ box.innerHTML='<div class="empty">Nenhum app tocando som</div>'; return; }
   if(box.contains(document.activeElement)&&document.activeElement.type==='range') return;
   box.innerHTML='';
   for(const s of list){ const r=h('input',{type:'range',min:0,max:100,value:Math.round(s.v*100)}); rangeFill(r); let t=0;
     r.addEventListener('input',()=>{ rangeFill(r); clearTimeout(t); t=setTimeout(()=>send({t:'session_set',pid:s.pid,v:r.value/100}),50); });
-    box.append(h('div',{class:'mix'},h('div',{class:'nm'},s.nome),r,h('button',{class:s.m?'on':'',html:ic(s.m?'mute':'vol',18),onclick:()=>send({t:'session_mute',pid:s.pid,m:!s.m})}))); } }
+    const dot=h('span',{class:'eqdot'+(s.playing?' live':''),title:s.playing?'Transmitindo áudio agora':'Em silêncio'});
+    box.append(h('div',{class:'mix'},h('div',{class:'nm'},dot,h('span',{style:'overflow:hidden;text-overflow:ellipsis'},s.nome)),r,h('button',{class:s.m?'on':'',html:ic(s.m?'mute':'vol',18),onclick:()=>send({t:'session_mute',pid:s.pid,m:!s.m})}))); } }
 $('#bright').addEventListener('input',e=>{ rangeFill(e.target); clearTimeout(volT); volT=setTimeout(()=>send({t:'bright_set',v:+e.target.value}),80); });
 
 /* ============================================================ apps */

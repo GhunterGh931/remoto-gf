@@ -2,6 +2,7 @@ aiohttp
 pynput
 pycaw; sys_platform == "win32"
 comtypes; sys_platform == "win32"
+winsdk; sys_platform == "win32"
 psutil
 mss
 Pillow

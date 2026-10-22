@@ -506,7 +506,7 @@ class Volume:
     def sessions(self):
         if not self.ok:
             return []
-        from pycaw.pycaw import AudioUtilities
+        from pycaw.pycaw import AudioUtilities, IAudioMeterInformation
         out, seen = [], set()
         for s in AudioUtilities.GetAllSessions():
             try:
@@ -514,12 +514,256 @@ class Volume:
                     continue
                 seen.add(s.ProcessId)
                 sv = s.SimpleAudioVolume
-                out.append({"pid": s.ProcessId, "nome": friendly_name(s.Process.name()),
-                            "v": round(float(sv.GetMasterVolume()), 3), "m": bool(sv.GetMute())})
+                peak = 0.0
+                try:
+                    meter = s._ctl.QueryInterface(IAudioMeterInformation)
+                    peak = round(float(meter.GetPeakValue()), 3)
+                except Exception:
+                    pass
+                state = 0
+                try:
+                    state = int(s.State)
+                except Exception:
+                    pass
+                out.append({
+                    "pid": s.ProcessId,
+                    "nome": friendly_name(s.Process.name()),
+                    "v": round(float(sv.GetMasterVolume()), 3),
+                    "m": bool(sv.GetMute()),
+                    "peak": peak,
+                    "playing": peak > 0.002 or state == 1,
+                })
             except Exception:
                 continue
-        out.sort(key=lambda x: x["nome"].lower())
+        out.sort(key=lambda x: (not x["playing"], -x["peak"], x["nome"].lower()))
         return out
+
+    def output_devices(self):
+        if not self.ok:
+            return []
+        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, IAudioMeterInformation
+        from comtypes import CLSCTX_ALL
+        out = []
+        default_id = ""
+        try:
+            sp = AudioUtilities.GetSpeakers()
+            default_id = getattr(sp, "id", "") or sp.GetId()
+        except Exception:
+            pass
+        try:
+            devs = AudioUtilities.GetAllDevices()
+        except Exception:
+            devs = []
+        for d in devs:
+            try:
+                st_name = str(getattr(d, "state", ""))
+                if "Active" not in st_name and getattr(d, "state", 1) != 1:
+                    continue
+                direction = str(getattr(d, "data_flow", getattr(d, "direction", "Render")))
+                if "Capture" in direction or "Input" in direction:
+                    continue
+                dev_id = getattr(d, "id", "")
+                name = getattr(d, "FriendlyName", None) or getattr(d, "friendly_name", None) or "Saída de áudio"
+                is_def = bool(dev_id and default_id and dev_id == default_id)
+                peak = 0.0
+                vol = None
+                muted = False
+                raw = getattr(d, "_dev", d)
+                try:
+                    iface_m = raw.Activate(IAudioMeterInformation._iid_, CLSCTX_ALL, None)
+                    meter = ctypes.cast(iface_m, ctypes.POINTER(IAudioMeterInformation))
+                    peak = round(float(meter.GetPeakValue()), 3)
+                except Exception:
+                    pass
+                try:
+                    iface_v = raw.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+                    ep = ctypes.cast(iface_v, ctypes.POINTER(IAudioEndpointVolume))
+                    vol = round(float(ep.GetMasterVolumeLevelScalar()), 3)
+                    muted = bool(ep.GetMute())
+                except Exception:
+                    pass
+                if vol is None and not is_def:
+                    continue
+                out.append({
+                    "id": dev_id,
+                    "nome": name,
+                    "padrao": is_def,
+                    "peak": peak,
+                    "playing": peak > 0.002,
+                    "v": vol if vol is not None else self.get()["v"],
+                    "m": muted,
+                })
+            except Exception:
+                continue
+        if not out:
+            try:
+                v = self.get()
+                out.append({"id": default_id or "default", "nome": "Alto-falantes / Saída Padrão",
+                            "padrao": True, "peak": 0.0, "playing": False, "v": v["v"], "m": v["m"]})
+            except Exception:
+                pass
+        out.sort(key=lambda x: (not x["padrao"], not x["playing"], x["nome"].lower()))
+        return out
+
+    def set_default_device(self, dev_id: str) -> bool:
+        if not IS_WIN or not dev_id:
+            return False
+        import comtypes
+        from comtypes import GUID, COMMETHOD, IUnknown
+        try:
+            comtypes.CoInitialize()
+        except Exception:
+            pass
+
+        class IPolicyConfig(IUnknown):
+            _iid_ = GUID("{f8679f50-850a-41cf-9c72-430f290290c8}")
+            _methods_ = [
+                COMMETHOD([], ctypes.HRESULT, "GetMixFormat", (["in"], ctypes.c_wchar_p, "pwstrId"), (["out"], ctypes.POINTER(ctypes.c_void_p), "ppFormat")),
+                COMMETHOD([], ctypes.HRESULT, "GetDeviceFormat", (["in"], ctypes.c_wchar_p, "pwstrId"), (["in"], ctypes.c_int, "bDefault"), (["out"], ctypes.POINTER(ctypes.c_void_p), "ppFormat")),
+                COMMETHOD([], ctypes.HRESULT, "ResetDeviceFormat", (["in"], ctypes.c_wchar_p, "pwstrId")),
+                COMMETHOD([], ctypes.HRESULT, "SetDeviceFormat", (["in"], ctypes.c_wchar_p, "pwstrId"), (["in"], ctypes.c_void_p, "pEndpointFormat"), (["in"], ctypes.c_void_p, "MixFormat")),
+                COMMETHOD([], ctypes.HRESULT, "GetProcessingPeriod", (["in"], ctypes.c_wchar_p, "pwstrId"), (["in"], ctypes.c_int, "bDefault"), (["out"], ctypes.POINTER(ctypes.c_longlong), "pmftDefault"), (["out"], ctypes.POINTER(ctypes.c_longlong), "pmftMin")),
+                COMMETHOD([], ctypes.HRESULT, "SetProcessingPeriod", (["in"], ctypes.c_wchar_p, "pwstrId"), (["in"], ctypes.POINTER(ctypes.c_longlong), "pmftPeriod")),
+                COMMETHOD([], ctypes.HRESULT, "GetShareMode", (["in"], ctypes.c_wchar_p, "pwstrId"), (["out"], ctypes.c_void_p, "pMode")),
+                COMMETHOD([], ctypes.HRESULT, "SetShareMode", (["in"], ctypes.c_wchar_p, "pwstrId"), (["in"], ctypes.c_void_p, "mode")),
+                COMMETHOD([], ctypes.HRESULT, "GetPropertyValue", (["in"], ctypes.c_wchar_p, "pwstrId"), (["in"], ctypes.c_void_p, "key"), (["out"], ctypes.c_void_p, "pv")),
+                COMMETHOD([], ctypes.HRESULT, "SetPropertyValue", (["in"], ctypes.c_wchar_p, "pwstrId"), (["in"], ctypes.c_void_p, "key"), (["in"], ctypes.c_void_p, "pv")),
+                COMMETHOD([], ctypes.HRESULT, "SetDefaultEndpoint", (["in"], ctypes.c_wchar_p, "pwstrId"), (["in"], ctypes.c_int, "role")),
+                COMMETHOD([], ctypes.HRESULT, "SetEndpointVisibility", (["in"], ctypes.c_wchar_p, "pwstrId"), (["in"], ctypes.c_int, "bVisible")),
+            ]
+
+        try:
+            clsid = GUID("{870af99c-171d-4f9e-af0d-e63df40c2bc9}")
+            pc = comtypes.CoCreateInstance(clsid, interface=IPolicyConfig, clsctx=comtypes.CLSCTX_ALL)
+            for role in (0, 1, 2):
+                pc.SetDefaultEndpoint(dev_id, role)
+            return True
+        except Exception as e:
+            log("SetDefaultEndpoint:", e)
+            return False
+
+    def device_volume_set(self, dev_id: str, v: float):
+        if not self.ok or not dev_id:
+            return
+        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+        from comtypes import CLSCTX_ALL
+        v = max(0.0, min(1.0, float(v)))
+        for d in AudioUtilities.GetAllDevices():
+            if getattr(d, "id", "") == dev_id:
+                raw = getattr(d, "_dev", d)
+                iface = raw.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+                ep = ctypes.cast(iface, ctypes.POINTER(IAudioEndpointVolume))
+                ep.SetMasterVolumeLevelScalar(v, None)
+                if v > 0 and ep.GetMute():
+                    ep.SetMute(0, None)
+                return
+
+    async def media_info(self) -> dict:
+        if not IS_WIN:
+            return {"ok": False}
+        try:
+            from winsdk.windows.media.control import GlobalSystemMediaTransportControlsSessionManager as MediaManager
+            mgr = await MediaManager.request_async()
+            sess = mgr.get_current_session()
+            if not sess:
+                all_s = mgr.get_sessions()
+                if all_s and len(all_s) > 0:
+                    sess = all_s[0]
+            if not sess:
+                return {"ok": False}
+            title, artist, album = "", "", ""
+            try:
+                props = await sess.try_get_media_properties_async()
+                if props:
+                    title = props.title or ""
+                    artist = props.artist or ""
+                    album = props.album_title or ""
+            except Exception:
+                pass
+            playing = False
+            try:
+                pb = sess.get_playback_info()
+                if pb:
+                    playing = (int(pb.playback_status) == 4)  # 4 = Playing
+            except Exception:
+                pass
+            pos, dur, can_seek = 0.0, 0.0, False
+            try:
+                tl = sess.get_timeline_properties()
+                if tl:
+                    pos = max(0.0, tl.position.total_seconds())
+                    dur = max(0.0, tl.end_time.total_seconds() - tl.start_time.total_seconds())
+                    if playing and tl.last_updated_time:
+                        import datetime
+                        now = datetime.datetime.now(datetime.timezone.utc)
+                        elapsed = (now - tl.last_updated_time).total_seconds()
+                        if 0 < elapsed < 3600:
+                            pos = min(dur if dur > 0 else pos + elapsed, pos + elapsed)
+                    can_seek = dur > 0
+            except Exception:
+                pass
+            app_id = ""
+            try:
+                app_id = sess.source_app_user_model_id or ""
+                if "!" in app_id:
+                    app_id = app_id.split("!")[0]
+                app_id = friendly_name(app_id.split("\\")[-1].split(".")[-1] if "." in app_id and not app_id.lower().endswith(".exe") else app_id)
+            except Exception:
+                pass
+            return {
+                "ok": bool(title or artist or dur > 0 or playing),
+                "title": title or "Reproduzindo mídia",
+                "artist": artist,
+                "album": album,
+                "app": app_id,
+                "playing": playing,
+                "pos": round(pos, 1),
+                "dur": round(dur, 1),
+                "can_seek": can_seek,
+            }
+        except Exception:
+            return {"ok": False}
+
+    async def media_seek(self, pos_sec: float | None = None, step_sec: float | None = None, inp=None, win=None) -> bool:
+        if IS_WIN:
+            try:
+                from winsdk.windows.media.control import GlobalSystemMediaTransportControlsSessionManager as MediaManager
+                mgr = await MediaManager.request_async()
+                sess = mgr.get_current_session()
+                if not sess:
+                    all_s = mgr.get_sessions()
+                    if all_s and len(all_s) > 0:
+                        sess = all_s[0]
+                if sess:
+                    target = pos_sec
+                    if target is None and step_sec is not None:
+                        tl = sess.get_timeline_properties()
+                        cur = tl.position.total_seconds() if tl else 0.0
+                        try:
+                            pb = sess.get_playback_info()
+                            if pb and int(pb.playback_status) == 4 and tl and tl.last_updated_time:
+                                import datetime
+                                elapsed = (datetime.datetime.now(datetime.timezone.utc) - tl.last_updated_time).total_seconds()
+                                if 0 < elapsed < 3600:
+                                    cur += elapsed
+                        except Exception:
+                            pass
+                        target = max(0.0, cur + float(step_sec))
+                    if target is not None:
+                        ticks = int(max(0.0, float(target)) * 10_000_000)
+                        ok = await sess.try_change_playback_position_async(ticks)
+                        if ok:
+                            return True
+            except Exception:
+                pass
+        # Fallback por atalho de teclado se o player não aceitar seek direto via SMTC
+        if step_sec is not None and inp:
+            k = "right" if step_sec > 0 else "left"
+            if abs(step_sec) >= 9:
+                k = "l" if step_sec > 0 else "j"
+            inp.tap(k)
+            return True
+        return False
 
     def _session(self, pid):
         from pycaw.pycaw import AudioUtilities
@@ -1313,7 +1557,31 @@ class Hub:
             self._last_vol = (v["v"], v["m"])
             return await self.broadcast({"t": "vol", **v})
         if t == "sessions":
-            return await self.send(ws, {"t": "sessions", "list": await self.run_sys(self.vol.sessions)})
+            devs, sess, minfo = await asyncio.gather(
+                self.run_sys(self.vol.output_devices),
+                self.run_sys(self.vol.sessions),
+                self.vol.media_info(),
+            )
+            return await self.send(ws, {"t": "sessions", "list": sess, "devices": devs, "media": minfo})
+        if t == "audio_dev_set":
+            await self.run_sys(self.vol.set_default_device, str(d.get("id", "")))
+            v = await self.run_sys(self.vol.get)
+            devs = await self.run_sys(self.vol.output_devices)
+            await self.broadcast({"t": "vol", **v})
+            return await self.send(ws, {"t": "sessions", "list": await self.run_sys(self.vol.sessions),
+                                        "devices": devs, "media": await self.vol.media_info()})
+        if t == "audio_dev_vol":
+            await self.run_sys(self.vol.device_volume_set, str(d.get("id", "")), _num(d, "v", 0.5))
+            return
+        if t == "media_seek":
+            pos = d.get("pos")
+            step = d.get("step")
+            await self.vol.media_seek(
+                pos_sec=float(pos) if pos is not None else None,
+                step_sec=float(step) if step is not None else None,
+                inp=self.inp, win=self.win)
+            await asyncio.sleep(0.15)
+            return await self.send(ws, {"t": "media_info", "media": await self.vol.media_info()})
         if t == "session_set":
             return await self.run_sys(self.vol.session_set, d.get("pid"), _num(d, "v"))
         if t == "session_mute":

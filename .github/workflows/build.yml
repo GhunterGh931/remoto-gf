@@ -49,6 +49,7 @@ jobs:
           --add-data "web;web"
           --hidden-import pynput.keyboard._win32 --hidden-import pynput.mouse._win32
           --hidden-import pystray._win32 --collect-submodules comtypes
+          --collect-submodules winsdk
           --collect-all screen_brightness_control
           remoto.py
       - name: Gerar instalador
