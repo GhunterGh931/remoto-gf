@@ -260,6 +260,24 @@ local, protegidos pelo mesmo pareamento por PIN.
 \end{nota}
 
 % ============================================================
+\section{Downloads do PC no celular}
+
+O Baixador Drive GF grava o progresso a cada segundo em
+\texttt{\%LOCALAPPDATA\%\textbackslash GF\textbackslash progresso\textbackslash baixador-drive-gf.json}.
+O Remoto GF le essa pasta, ignora arquivos velhos (app fechado ou travado) e manda as mudancas
+ao celular (mensagem \texttt{progress}). No celular:
+\begin{itemize}
+  \item Notificacao fixa com barra de progresso, sem som (canal ``Downloads no PC''): arquivo,
+  porcentagem, velocidade, tempo que falta e posicao na fila. Ao concluir, parar ou dar erro,
+  ela vira um aviso com som.
+  \item Faixa no topo do app; tocando nela aparecem os detalhes do arquivo e da fila.
+\end{itemize}
+Qualquer app pode aparecer gravando um JSON na mesma pasta, com os campos \texttt{estado}
+(baixando, pausado, concluido, parado, erro), \texttt{arquivo}, \texttt{pct}, \texttt{feito},
+\texttt{total}, \texttt{vel}, \texttt{resta}, \texttt{geral} e \texttt{msg}. Limite: a
+notificacao so atualiza enquanto o app do celular esta aberto ou em segundo plano.
+
+% ============================================================
 \section{Acesso fora de casa (dados moveis)}
 \label{sec:fora}
 
@@ -318,6 +336,7 @@ Passar arquivos entre PC e celular (nos dois sentidos) & Pronto \\
 Acesso fora de casa pelos dados moveis (Tailscale) & Pronto \\
 Ligar o PC pela rede (Wake-on-LAN) em casa & MAC corrigido, testar \\
 Ligar o PC pela rede fora de casa & Planejado \\
+Progresso dos downloads do PC no celular & Pronto \\
 \bottomrule
 \end{tabular}
 \end{center}

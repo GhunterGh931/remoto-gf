@@ -52,6 +52,16 @@ TELA DO PC NO CELULAR
 - O botão no canto da imagem abre a tela deitada: 70% tela do PC e 30% touchpad, com
   botões Esquerdo e Direito. "Só tela" esconde o touchpad, "Sair" ou Voltar fecha.
 
+DOWNLOADS DO PC NO CELULAR
+Quando o Baixador Drive GF está baixando, o celular mostra:
+- uma notificação com barra de progresso (puxe a barra de cima do Android): arquivo,
+  porcentagem, velocidade, tempo que falta e posição na fila. Ao terminar, vira um aviso.
+- uma faixa no topo do app. Toque nela para ver os detalhes do arquivo e da fila.
+Outros apps podem aparecer também: basta gravar um JSON em %LOCALAPPDATA%\GF\progresso\
+(campos: estado = baixando/pausado/concluido/parado/erro, arquivo, pct, feito, total, vel,
+resta, geral {pct, feito, total, resta, arquivos}, msg). O app fica no celular enquanto o
+Remoto GF está aberto ou em segundo plano.
+
 PC CONTROLANDO O CELULAR (novo)
 No app do celular tem a aba "Deixar o PC me controlar". Com ela, o PC vê a tela do
 celular e consegue tocar, rolar com a rodinha do mouse, digitar (inclusive Ctrl+V)

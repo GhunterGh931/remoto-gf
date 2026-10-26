@@ -101,6 +101,41 @@ def config_dir() -> Path:
     return p
 
 
+def progress_dir() -> Path:
+    """Pasta onde os apps GF (ex.: Baixador Drive GF) publicam o progresso dos downloads.
+    Cada app grava um JSON (ver LEIA-ME, seção DOWNLOADS DO PC NO CELULAR) e o Remoto GF repassa ao celular."""
+    base = os.environ.get("LOCALAPPDATA") if IS_WIN else os.path.expanduser("~/.local/share")
+    p = Path(base or ".") / "GF" / "progresso"
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return p
+
+
+def read_progress() -> list:
+    """Lê os JSONs de progresso. Ignora arquivos velhos (app fechado ou travado)."""
+    out, now = [], time.time()
+    try:
+        files = list(progress_dir().glob("*.json"))
+    except Exception:
+        return out
+    for f in files:
+        try:
+            d = json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        idade = now - float(d.get("atualizado") or 0)
+        estado = d.get("estado", "")
+        if estado in ("baixando", "pausado") and idade > 20:
+            continue  # o app parou de atualizar: não mostra como se ainda estivesse baixando
+        if estado not in ("baixando", "pausado") and idade > 120:
+            continue  # concluído/parado há muito tempo
+        d["id"] = f.stem
+        out.append(d)
+    return out
+
+
 def files_dir() -> Path:
     p = Path.home() / "Downloads" / "Remoto GF"
     try:
@@ -1213,6 +1248,7 @@ class Hub:
         self.fails = 0
         self.lock_until = 0.0
         self.clients = {}
+        self._progress = []
         self.phones = {}
         self.cams = {}
         self.phone_cb = None  # a janela do PC registra aqui para saber de celulares
@@ -1482,6 +1518,8 @@ class Hub:
             "mac": mac_addr(), "porta": self.port, "lan_ip": lan_ip(), "tailscale_ip": tailscale_ip(),
             "apps": [a.get("nome", "?") for a in self.cfg.get("apps", [])],
         })
+        if self._progress:
+            await self.send(ws, self.progress_msg())
         if not self.inp.ok:
             await self.send(ws, {"t": "notify", "level": "error", "title": "Mouse e teclado indisponíveis",
                                  "msg": f"O PC não conseguiu iniciar o controle: {self.inp.err}", "sticky": True})
@@ -1754,6 +1792,27 @@ class Hub:
                 log("vigia:", e)
         return out
 
+    def progress_msg(self):
+        return {"t": "progress", "itens": self._progress}
+
+    async def watch_progress(self):
+        """Repassa ao celular o progresso dos downloads publicados pelos apps GF."""
+        last = None
+        while True:
+            await asyncio.sleep(1)
+            try:
+                itens = await self.loop.run_in_executor(None, read_progress)
+            except Exception:
+                continue
+            sig = json.dumps([{k: v for k, v in i.items() if k != "atualizado"} for i in itens],
+                             sort_keys=True, ensure_ascii=False)
+            if sig == last:
+                continue
+            last = sig
+            self._progress = itens
+            if self.clients:
+                await self.broadcast(self.progress_msg())
+
     async def watch(self):
         last_wins = None
         uac_prev = False
@@ -1831,6 +1890,7 @@ class Hub:
             log("Modo HTTPS indisponível:", e)
         threading.Thread(target=self.discovery_thread, daemon=True, name="descoberta").start()
         self.loop.create_task(self.watch())
+        self.loop.create_task(self.watch_progress())
 
     async def kick_all(self):
         for ws in list(self.clients):
