@@ -174,6 +174,11 @@ Todos os itens abaixo estao \feito implementados e testados.
 \subsection{Tela ao vivo}
 \begin{itemize}
   \item Ver a tela do PC no celular, com escolha de monitor, taxa de quadros e qualidade.
+  \item Fluxo continuo (MJPEG em \texttt{/api/stream}): o PC manda os quadros sem esperar o
+  celular pedir cada um e ja captura o proximo enquanto envia o atual. Chega a 24 a 30
+  quadros/s (antes, um pedido por quadro limitava a uns 10). Se o PC for de versao antiga, o
+  app volta sozinho ao modo de um pedido por quadro. O fluxo para quando o app sai da tela ou
+  vai para segundo plano.
   \item Tocar na imagem clica naquele ponto; segurar faz clique direito.
   \item Correcao: antes, todo toque virava clique direito no app Android. O sistema
   cancelava o toque na imagem e o fim do toque nao chegava, entao o cronometro do clique

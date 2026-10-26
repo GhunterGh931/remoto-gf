@@ -1448,9 +1448,10 @@ class Hub:
             resp = web.Response()
         else:
             resp = await handler(req)
-        resp.headers["Access-Control-Allow-Origin"] = "*"
-        resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
-        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        if not resp.prepared:  # o fluxo da tela (stream) já enviou os cabeçalhos
+            resp.headers["Access-Control-Allow-Origin"] = "*"
+            resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
         return resp
 
     async def index(self, req):
@@ -1500,6 +1501,48 @@ class Hub:
         except Exception as e:
             return web.Response(status=500, text=str(e))
         return web.Response(body=data, content_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+    async def screen_stream(self, req):
+        """Tela ao vivo em fluxo contínuo (MJPEG): o PC manda os quadros sem esperar o celular
+        pedir cada um. Antes era um pedido por quadro, o que limitava a uns 10 quadros/s."""
+        if not self.token_ok(req.query.get("t")):
+            raise web.HTTPForbidden()
+        if not self.scr.ok:
+            return web.Response(status=503, text="Captura de tela indisponível")
+        try:
+            m = int(req.query.get("m", 1))
+            w = max(320, min(int(req.query.get("w", 1100)), 2560))
+            q = max(25, min(int(req.query.get("q", 60)), 92))
+            fps = max(1, min(int(req.query.get("fps", 24)), 30))
+        except ValueError:
+            raise web.HTTPBadRequest()
+        resp = web.StreamResponse(headers={
+            "Content-Type": "multipart/x-mixed-replace; boundary=gfquadro",
+            "Cache-Control": "no-store", "Pragma": "no-cache",
+            "Access-Control-Allow-Origin": "*"})
+        await resp.prepare(req)
+        intervalo = 1.0 / fps
+        nxt = None
+        try:
+            while True:
+                t0 = time.perf_counter()
+                # captura o próximo quadro enquanto o atual ainda está sendo enviado
+                fut = nxt or self.loop.run_in_executor(self.scr_exec, self.scr.grab, m, w, q)
+                data = await fut
+                nxt = self.loop.run_in_executor(self.scr_exec, self.scr.grab, m, w, q)
+                await resp.write(b"--gfquadro\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                                 + str(len(data)).encode() + b"\r\n\r\n" + data + b"\r\n")
+                espera = intervalo - (time.perf_counter() - t0)
+                if espera > 0:
+                    await asyncio.sleep(espera)
+        except (ConnectionResetError, asyncio.CancelledError, RuntimeError):
+            pass  # celular saiu da tela, trocou de opção ou perdeu a conexão
+        except Exception as e:
+            log("tela ao vivo:", e)
+        finally:
+            if nxt:
+                nxt.cancel()
+        return resp
 
     async def ws(self, req):
         ws = web.WebSocketResponse(heartbeat=20, max_msg_size=8 * 1024 * 1024)
@@ -1870,6 +1913,7 @@ class Hub:
         app.router.add_get("/wscam", self.ws_cam)
         app.router.add_post("/api/pair", self.pair)
         app.router.add_get("/api/screen", self.screen)
+        app.router.add_get("/api/stream", self.screen_stream)
         app.router.add_get("/api/files", self.api_files)
         app.router.add_post("/api/upload", self.api_upload)
         app.router.add_get("/api/file/{id}", self.api_file_download)

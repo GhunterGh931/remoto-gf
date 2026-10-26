@@ -50,6 +50,8 @@ AVISOS NO CELULAR (notificação do Android)
 - PIN errado 5 vezes, novo aparelho conectado, desligamento agendado.
 
 TELA DO PC NO CELULAR
+- Vai em fluxo contínuo de até 30 quadros/s (padrão 24). Nos dados móveis, escolha
+  menos quadros ou qualidade "Leve" para gastar menos internet.
 - Toque na imagem para clicar naquele ponto. Segure para o botão direito.
 - O botão no canto da imagem abre a tela deitada: 70% tela do PC e 30% touchpad, com
   botões Esquerdo e Direito. "Só tela" esconde o touchpad, "Sair" ou Voltar fecha.
