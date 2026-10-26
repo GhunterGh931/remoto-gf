@@ -8,7 +8,9 @@ PC:      RemotoGF-Instalador.exe  -> próximo, próximo, concluir. Ele já liber
 Celular: RemotoGF.apk -> abra no celular e instale (o Android pede para permitir
          "instalar apps desconhecidos" na primeira vez).
 Os dois arquivos saem prontos na página "Releases" do repositório no GitHub,
-gerados automaticamente a cada atualização do código.
+gerados automaticamente a cada atualização do código. Se várias mudanças forem enviadas
+em sequência, o GitHub espera 2 minutos e publica só a versão final, então o botão de
+atualizar já leva direto para a última versão.
 
 PRIMEIRO USO
 1. Abra o Remoto GF no PC. Aparece uma janela com QR code e um PIN.
@@ -51,6 +53,10 @@ TELA DO PC NO CELULAR
 - Toque na imagem para clicar naquele ponto. Segure para o botão direito.
 - O botão no canto da imagem abre a tela deitada: 70% tela do PC e 30% touchpad, com
   botões Esquerdo e Direito. "Só tela" esconde o touchpad, "Sair" ou Voltar fecha.
+
+CLICAR E ARRASTAR
+Segure o botão Esquerdo (ou Direito) com um dedo e mova no touchpad com outro dedo,
+como num notebook. Funciona no painel Mouse e na tela deitada.
 
 DOWNLOADS DO PC NO CELULAR
 Quando o Baixador Drive GF está baixando, o celular mostra:

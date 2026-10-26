@@ -134,6 +134,9 @@ Todos os itens abaixo estao \feito implementados e testados.
   \item Rolagem com 2 dedos e faixa lateral de rolagem.
   \item Pinca para zoom (Ctrl + roda do mouse). Arrastar com 3 dedos.
   \item Botoes fisicos do mouse (esquerdo, meio, direito) e trava de clique para arrastar.
+  \item Clicar e arrastar com dois dedos: segure Esquerdo (ou Direito) com um dedo e mova no
+  touchpad com outro. O touchpad conta so os dedos que estao nele, entao o dedo no botao nao
+  vira rolagem, e o botao so solta quando o dedo sai dele.
   \item Botao giroscopio: mover o cursor inclinando o celular.
 \end{itemize}
 
@@ -209,6 +212,9 @@ alguem erra o PIN varias vezes, um novo aparelho conecta, ou um desligamento foi
   gera o \texttt{RemotoGF.apk} (celular) e o \texttt{RemotoGF-Instalador.exe} (PC) e publica
   na pagina de Releases.
   \item Scripts locais: \texttt{iniciar.bat} (roda sem instalar) e \texttt{gerar\_exe.bat}.
+  \item Envios em sequencia viram uma versao so: o build espera 2 minutos e, se chegar outro
+  envio, o anterior e cancelado (\texttt{concurrency} com \texttt{cancel-in-progress}). Assim a
+  atualizacao no app vai direto para a ultima versao.
 \end{itemize}
 
 \begin{nota}
