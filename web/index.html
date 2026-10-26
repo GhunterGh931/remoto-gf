@@ -154,7 +154,18 @@ input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;bac
 
 /* tela */
 #scrBox{position:relative;background:#000;border-radius:14px;overflow:hidden;min-height:180px;display:grid;place-items:center;touch-action:none}
-#scrBox img{width:100%;display:block}
+#scrBox img{width:100%;display:block;-webkit-user-drag:none;user-select:none;-webkit-touch-callout:none}
+#scrView{position:relative;width:100%;display:grid;place-items:center;min-width:0}
+#scrSide{display:none}
+#scrBox.appfs{display:flex;align-items:stretch;place-items:initial}
+#scrBox.appfs #scrView{flex:1 1 auto;height:100%}
+#scrBox.appfs.split #scrView{flex:0 0 70%;width:70%}
+#scrBox.appfs.split #scrSide{display:flex;flex-direction:column;gap:8px;flex:0 0 30%;width:30%;padding:8px calc(8px + var(--safe-r,0px)) 8px 8px;background:var(--bg2);box-sizing:border-box}
+#scrBox.appfs.split #fsBtn{display:none}
+#scrSide .spad{flex:1;position:relative;border-radius:16px;background:var(--card2);border:1px solid var(--line);touch-action:none;display:grid;place-items:center;overflow:hidden}
+#scrSide .spad span{color:var(--mut);font-size:12px;pointer-events:none}
+#scrSide .sbtns{display:flex;gap:8px}
+#scrSide .sbtns button{flex:1;padding:12px 4px;font-size:13px;background:var(--card)}
 #scrMsg{position:absolute;color:var(--mut);font-size:13px;text-align:center;padding:20px}
 #scrBox:fullscreen{border-radius:0;height:100%}
 #scrBox:fullscreen img{width:auto;max-width:100%;max-height:100%}
@@ -234,7 +245,7 @@ nav button.active{color:var(--acc);background:var(--accbg)}
 #found button{width:100%;margin-bottom:6px;text-align:left;display:flex;justify-content:space-between;gap:8px}
 #found small{color:var(--mut)}
 #scrBox.appfs{position:fixed;inset:0;z-index:60;border-radius:0}
-#scrBox.appfs img{width:auto;max-width:100%;max-height:100%}
+#scrBox.appfs img{width:auto;max-width:100%;max-height:100vh}
 /* botões estilo DaVinci Resolve */
 #gridResolve button{flex-direction:column;gap:5px;padding:10px 4px;min-height:68px;position:relative;border:1px solid rgba(255,255,255,.05);background:linear-gradient(180deg,#232730,#1b1e26)}
 #gridResolve button:active{border-color:var(--acc);background:var(--accbg)}
@@ -380,13 +391,13 @@ nav button.active{color:var(--acc);background:var(--accbg)}
 
   <!-- TELA -->
   <section class="panel" data-p="tela">
-    <div id="scrBox"><img id="scr" alt=""><div id="scrMsg">Carregando a tela do PC...</div><button id="fsBtn" aria-label="Tela cheia"></button></div>
+    <div id="scrBox"><div id="scrView"><img id="scr" alt="" draggable="false"><div id="scrMsg">Carregando a tela do PC...</div></div><div id="scrSide"><div class="spad" id="spad"><span>Touchpad</span></div><div class="sbtns"><button id="sLeft">Esquerdo</button><button id="sRight">Direito</button></div><div class="sbtns"><button id="sHide">Só tela</button><button id="sExit">Sair</button></div></div><button id="fsBtn" aria-label="Tela cheia com mouse"></button></div>
     <div class="row" style="margin-top:10px">
       <select id="scrMon"></select>
       <select id="scrFps"><option value="1">1 quadro/s</option><option value="3" selected>3 quadros/s</option><option value="6">6 quadros/s</option><option value="10">10 quadros/s</option></select>
       <select id="scrQ"><option value="0">Leve</option><option value="1" selected>Normal</option><option value="2">Nítida</option></select>
     </div>
-    <p class="hint">Toque na imagem para clicar naquele ponto. Segure para o botão direito.</p>
+    <p class="hint">Toque na imagem para clicar naquele ponto. Segure para o botão direito. O botão no canto abre a tela deitada com a tela do PC (70%) e um touchpad (30%).</p>
   </section>
 
   <!-- ENERGIA -->
@@ -752,20 +763,23 @@ function moveBy(dx,dy,dt){
   Q.x+=x; Q.y+=y; sched();
 }
 function scrollBy(dx,dy){ const k=S.scroll*(S.natural?1:-1); Q.sy+=dy*k; Q.sx+=-dx*k; sched(); }
-function ripple(x,y){ if(!S.feedback) return; const r=pad.getBoundingClientRect(); const e=h('div',{class:'ripple'}); e.style.left=(x-r.left)+'px'; e.style.top=(y-r.top)+'px'; pad.append(e); setTimeout(()=>e.remove(),500); }
+let curPad=pad;
+function ripple(x,y){ if(!S.feedback) return; const r=curPad.getBoundingClientRect(); const e=h('div',{class:'ripple'}); e.style.left=(x-r.left)+'px'; e.style.top=(y-r.top)+'px'; curPad.append(e); setTimeout(()=>e.remove(),500); }
 function click(b,x,y,label){ flush(); send({t:'c',b}); tick(); if(x!=null) ripple(x,y); fb(label); }
 
 const G={n:0,max:0,t0:0,moved:false,dist:0,lx:0,ly:0,lt:0,lp:0,lpFired:false,mode:null,d0:0,ld:0,lastTap:0,tapX:0,tapY:0};
 const cen=ts=>{let x=0,y=0;for(const t of ts){x+=t.clientX;y+=t.clientY}return{x:x/ts.length,y:y/ts.length}};
 const spread=ts=>ts.length<2?0:Math.hypot(ts[0].clientX-ts[1].clientX,ts[0].clientY-ts[1].clientY);
-pad.addEventListener('touchstart',e=>{
-  e.preventDefault(); $('#padHint').style.opacity=0;
+/* touchpad: o mesmo comportamento serve para o painel Mouse e para a lateral da tela deitada */
+function bindPad(el){
+el.addEventListener('touchstart',e=>{
+  e.preventDefault(); curPad=el; const hint=$('#padHint'); if(el===pad&&hint) hint.style.opacity=0;
   const c=cen(e.touches), now=performance.now();
   if(G.n===0){
     Object.assign(G,{t0:now,moved:false,dist:0,max:0,lpFired:false,mode:null}); sm.x=sm.y=0;
     const t=e.touches[0];
     if(S.dblDrag && now-G.lastTap<300 && Math.hypot(t.clientX-G.tapX,t.clientY-G.tapY)<45){
-      G.mode='dd'; send({t:'md',b:'left'}); pad.classList.add('drag');      // 2º toque: segura o botão
+      G.mode='dd'; send({t:'md',b:'left'}); el.classList.add('drag');      // 2º toque: segura o botão
     }else if(S.longRight){
       clearTimeout(G.lp);
       G.lp=setTimeout(()=>{ if(!G.moved&&G.n===1&&!G.mode){ G.lpFired=true; click('right',t.clientX,t.clientY,'Clique direito'); tick(true);} },480);
@@ -775,7 +789,7 @@ pad.addEventListener('touchstart',e=>{
   if(G.n>1) clearTimeout(G.lp);
   if(G.n===2){ G.d0=G.ld=spread(e.touches); if(G.mode!=='dd') G.mode=null; }
 },{passive:false});
-pad.addEventListener('touchmove',e=>{
+el.addEventListener('touchmove',e=>{
   e.preventDefault();
   const ts=e.touches, c=cen(ts), now=performance.now();
   if(ts.length!==G.n){ G.n=ts.length; G.lx=c.x; G.ly=c.y; G.lt=now; if(G.n===2) G.d0=G.ld=spread(ts); return; }
@@ -792,25 +806,27 @@ pad.addEventListener('touchmove',e=>{
     if(G.mode==='pinch'){ Q.z+=(d-G.ld)/18; G.ld=d; sched(); }
     else if(G.mode==='scroll'&&S.twoScroll){ scrollBy(dx,dy); }
   }else if(G.n===3&&S.threeDrag){
-    if(G.mode!=='drag3'){ G.mode='drag3'; send({t:'md',b:'left'}); pad.classList.add('drag'); tick(); }
+    if(G.mode!=='drag3'){ G.mode='drag3'; send({t:'md',b:'left'}); el.classList.add('drag'); tick(); }
     moveBy(dx,dy,dt);
   }
 },{passive:false});
-function padEnd(e){
+const padEnd=e=>{
   e.preventDefault(); G.n=e.touches.length;
   if(G.n>0){ const c=cen(e.touches); G.lx=c.x; G.ly=c.y; return; }
   clearTimeout(G.lp); flush();
   const dur=performance.now()-G.t0, ch=e.changedTouches[0];
-  if(G.mode==='dd'||G.mode==='drag3'){ send({t:'mu',b:'left'}); pad.classList.remove('drag'); if(G.mode==='dd'&&!G.moved) fb('Clique duplo'); G.lastTap=0; G.mode=null; return; }
+  if(G.mode==='dd'||G.mode==='drag3'){ send({t:'mu',b:'left'}); el.classList.remove('drag'); if(G.mode==='dd'&&!G.moved) fb('Clique duplo'); G.lastTap=0; G.mode=null; return; }
   if(!G.moved && !G.lpFired && dur<320){
     if(G.max===1){ click('left',ch.clientX,ch.clientY,'Clique'); G.lastTap=performance.now(); G.tapX=ch.clientX; G.tapY=ch.clientY; }
     else if(G.max===2&&S.twoTapRight) click('right',ch.clientX,ch.clientY,'Clique direito');
     else if(G.max>=3) click('middle',ch.clientX,ch.clientY,'Clique do meio');
   }
   G.mode=null;
+};
+el.addEventListener('touchend',padEnd,{passive:false});
+el.addEventListener('touchcancel',padEnd,{passive:false});
 }
-pad.addEventListener('touchend',padEnd,{passive:false});
-pad.addEventListener('touchcancel',padEnd,{passive:false});
+bindPad(pad);
 
 // faixa de rolagem com um dedo
 (()=>{const st=$('#strip'); let ly=0;
@@ -1125,19 +1141,51 @@ function startScreen(){ const gen=++scrGen; $('#scrMsg').textContent='Carregando
     setTimeout(loop,Math.max(30,1000/fps-(performance.now()-t0)));
   })(); }
 function stopScreen(){ scrGen++; }
-(()=>{const img=$('#scr'); let lp=0, fired=false, sx=0, sy=0;
-  const pos=e=>{ const r=img.getBoundingClientRect(); return {x:(e.clientX-r.left)/r.width, y:(e.clientY-r.top)/r.height}; };
-  img.addEventListener('pointerdown',e=>{ e.preventDefault(); fired=false; sx=e.clientX; sy=e.clientY; const p=pos(e);
-    lp=setTimeout(()=>{ fired=true; send({t:'abs',mon:+$('#scrMon').value||1,x:p.x,y:p.y,a:'right'}); tick(true); fb('Clique direito'); },500); });
-  img.addEventListener('pointerup',e=>{ clearTimeout(lp); if(fired||Math.hypot(e.clientX-sx,e.clientY-sy)>12) return; const p=pos(e);
-    send({t:'abs',mon:+$('#scrMon').value||1,x:p.x,y:p.y,a:'left'}); tick(); fb('Clique'); });
+/* Toque na imagem = clique naquele ponto; segurar = botão direito.
+   Antes usava pointerdown/pointerup: no Android o sistema às vezes cancela o toque na imagem
+   (pointercancel) e o pointerup nunca chega, então o cronômetro do botão direito disparava
+   em todo toque. Agora usa eventos de toque (como o touchpad) e qualquer cancelamento
+   desarma o botão direito. */
+(()=>{const img=$('#scr'); let lp=0, fired=false, moved=false, sx=0, sy=0, p0=null;
+  img.draggable=false;
+  const mon=()=>+$('#scrMon').value||1;
+  const pos=(cx,cy)=>{ const r=img.getBoundingClientRect(); return {x:(cx-r.left)/r.width, y:(cy-r.top)/r.height}; };
+  const down=(cx,cy)=>{ clearTimeout(lp); fired=false; moved=false; sx=cx; sy=cy; p0=pos(cx,cy);
+    lp=setTimeout(()=>{ if(moved) return; fired=true; send({t:'abs',mon:mon(),x:p0.x,y:p0.y,a:'right'}); tick(true); fb('Clique direito'); },600); };
+  const move=(cx,cy)=>{ if(Math.hypot(cx-sx,cy-sy)>12){ moved=true; clearTimeout(lp); } };
+  const up=(cx,cy)=>{ clearTimeout(lp); if(fired||moved) return; const p=pos(cx,cy);
+    send({t:'abs',mon:mon(),x:p.x,y:p.y,a:'left'}); tick(); fb('Clique'); };
+  const cancel=()=>{ clearTimeout(lp); moved=true; };
+  img.addEventListener('touchstart',e=>{ e.preventDefault(); if(e.touches.length>1){ cancel(); return; } const t=e.touches[0]; down(t.clientX,t.clientY); },{passive:false});
+  img.addEventListener('touchmove',e=>{ e.preventDefault(); const t=e.touches[0]; if(t) move(t.clientX,t.clientY); },{passive:false});
+  img.addEventListener('touchend',e=>{ e.preventDefault(); if(e.touches.length) return; const t=e.changedTouches[0]; up(t.clientX,t.clientY); },{passive:false});
+  img.addEventListener('touchcancel',cancel);
+  // mouse (navegador no computador): o toque já chama preventDefault, então não duplica
+  img.addEventListener('mousedown',e=>{ if(e.button!==0) return; e.preventDefault(); down(e.clientX,e.clientY); });
+  img.addEventListener('mousemove',e=>{ if(e.buttons&1) move(e.clientX,e.clientY); });
+  img.addEventListener('mouseup',e=>{ if(e.button!==0) return; up(e.clientX,e.clientY); });
+  img.addEventListener('dragstart',e=>e.preventDefault());
   img.addEventListener('contextmenu',e=>e.preventDefault());
 })();
+
+/* Tela deitada: 70% tela do PC + 30% touchpad (botão no canto da imagem) */
+bindPad($('#spad'));
+async function setScrFull(on,split=true){ const b=$('#scrBox');
+  b.classList.toggle('split',on&&split);
+  if(APP){ b.classList.toggle('appfs',on); NA.setOrientation(on?'landscape':(S.portrait?'portrait':'auto')); NA.setImmersive(on); return; }
+  if(!on){ b.classList.remove('appfs'); if(document.fullscreenElement) await document.exitFullscreen().catch(()=>{}); lockPortrait(); return; }
+  b.classList.add('appfs');
+  try{ await b.requestFullscreen(); await screen.orientation.lock('landscape').catch(()=>{}); }catch(e){}
+}
+document.addEventListener('fullscreenchange',()=>{ if(!document.fullscreenElement&&!APP) $('#scrBox').classList.remove('appfs','split'); });
 $('#fsBtn').innerHTML=ic('full');
-$('#fsBtn').onclick=async()=>{ const b=$('#scrBox');
-  if(APP){ const on=!b.classList.contains('appfs'); b.classList.toggle('appfs',on); NA.setOrientation(on?'landscape':(S.portrait?'portrait':'auto')); NA.setImmersive(on); return; }
-  if(document.fullscreenElement){ await document.exitFullscreen().catch(()=>{}); lockPortrait(); return; }
-  try{ await b.requestFullscreen(); await screen.orientation.lock('landscape').catch(()=>{}); }catch(e){ toast('Tela cheia indisponível','Este navegador não deixou.','warn'); } };
+$('#fsBtn').onclick=()=>{ const b=$('#scrBox'); const on=b.classList.contains('appfs');
+  if(on&&!b.classList.contains('split')){ b.classList.add('split'); return; } // de "só tela" volta a mostrar o mouse
+  setScrFull(!on); };
+$('#sLeft').onclick=()=>click('left',null,null,'Clique');
+$('#sRight').onclick=()=>click('right',null,null,'Clique direito');
+$('#sHide').onclick=()=>$('#scrBox').classList.remove('split');
+$('#sExit').onclick=()=>setScrFull(false);
 $$('#scrMon,#scrFps,#scrQ').forEach(s=>s.onchange=()=>{ if(cur==='tela') startScreen(); });
 
 /* ============================================================ energia e área de transferência */
@@ -1367,7 +1415,7 @@ function applyS(){
 window.onVolumeKey=d=>{ send({t:'vol_step',d:d==='up'?0.02:-0.02}); tick(); };
 window.onNativeBack=()=>{
   if(!$('#modal').classList.contains('hidden')){ $('#modal').classList.add('hidden'); return true; }
-  if($('#scrBox').classList.contains('appfs')){ $('#fsBtn').click(); return true; }
+  if($('#scrBox').classList.contains('appfs')){ setScrFull(false); return true; }
   if($('#settings').classList.contains('open')){ if(sPages.length>1){ sPages.pop(); renderS(); } else closeSettings(); return true; }
   if(cur!=='mouse'){ show('mouse'); return true; }
   return false; };
