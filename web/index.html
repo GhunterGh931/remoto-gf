@@ -499,7 +499,8 @@ nav button.active{color:var(--acc);background:var(--accbg)}
     <div id="appHost" class="hidden" style="text-align:left;margin-bottom:12px">
       <div class="row" style="align-items:center;margin-bottom:8px"><b style="flex:1;font-size:14px">PCs nesta rede</b><button id="scanBtn" style="flex:0 0 auto;padding:8px 14px;font-size:13px">Procurar</button></div>
       <div id="found"></div>
-      <input id="hostIn" placeholder="IP ou endereço do PC (ex: 192.168.0.10 ou meu-pc:8765)" autocomplete="off" autocapitalize="off" style="margin-top:6px">
+      <input id="hostIn" placeholder="IP do PC em casa (ex: 192.168.0.10)" autocomplete="off" autocapitalize="off" style="margin-top:6px">
+      <input id="hostRemoteIn" placeholder="Fora de casa: IP do Tailscale (100.x.x.x), opcional" autocomplete="off" autocapitalize="off" style="margin-top:6px">
     </div>
     <input id="pin" type="password" maxlength="64" autocomplete="current-password" placeholder="Sua senha fixa ou PIN de 6 dígitos" style="font-size:20px;letter-spacing:.08em">
     <input id="devname" placeholder="Nome deste celular" style="margin-bottom:12px">
@@ -536,7 +537,13 @@ function h(tag,attrs={},...kids){const e=document.createElement(tag);
 /* ponte com o app Android (quando instalado) */
 const APP=!!(window.Android&&window.Android.isApp&&window.Android.isApp());
 const NA=window.Android||{};
-let host=LS.get('host',null);
+let host=LS.get('host',null);               // endereço em uso agora (ip:porta)
+let hostLocal=LS.get('hostLocal',host);     // endereço de casa (rede local)
+let hostRemote=LS.get('hostRemote',null);   // endereço fora de casa (Tailscale, 100.x.x.x:porta)
+/* normaliza o que o usuário digitou: tira http://, caminho e põe a porta padrão */
+const normHost=v=>{ v=String(v||'').trim().replace(/^https?:\/\//,'').replace(/\/.*$/,''); if(!v) return ''; if(!/:\d+$/.test(v)) v+=':8765'; return v; };
+/* o outro endereço salvo (casa <-> fora de casa), para tentar quando o atual não responde */
+const altHost=()=>APP?([hostLocal,hostRemote].find(x=>x&&x!==host)||null):null;
 const base=()=>APP?`http://${host}`:'';
 const P={
   mouse:'<rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 7v4"/>',
@@ -610,16 +617,23 @@ const pk=k=>PRETTY[k]||(k.length===1?k.toUpperCase():k.toUpperCase());
 let token=LS.get('token',null), ws=null, retry=0, hello={}, everConnected=false;
 const devName=()=>LS.get('devname',null)||(/iPhone/.test(navigator.userAgent)?'iPhone':(navigator.userAgent.match(/;\s*([^;)]+)\s+Build/)||[])[1]||'Celular');
 function setStatus(ok){const p=$('#status');p.classList.toggle('ok',ok);p.querySelector('span').textContent=ok?'conectado':'offline';}
+let openT=0;
 function connect(){
   if(!token||(APP&&!host)){ showPair(); return; }
   try{ if(ws){ ws.onclose=null; ws.close(); } }catch(e){}
+  clearTimeout(openT);
   const proto=!APP&&location.protocol==='https:'?'wss':'ws';
-  ws=new WebSocket(`${proto}://${APP?host:location.host}/ws?t=${encodeURIComponent(token)}&n=${encodeURIComponent(devName())}`);
-  ws.onopen=()=>{retry=0;everConnected=true;setStatus(true);$('#connectGate').classList.add('hidden');onPanel(cur,true);};
-  ws.onclose=e=>{setStatus(false);
+  const sock=new WebSocket(`${proto}://${APP?host:location.host}/ws?t=${encodeURIComponent(token)}&n=${encodeURIComponent(devName())}`);
+  ws=sock; let opened=false;
+  // nos dados móveis o IP de casa não responde (fica pendurado): desiste rápido e tenta o outro endereço
+  openT=setTimeout(()=>{ if(!opened&&ws===sock){ try{ sock.close(); }catch(e){} } }, altHost()?6000:10000);
+  sock.onopen=()=>{opened=true;clearTimeout(openT);retry=0;everConnected=true;if(APP) LS.set('host',host);setStatus(true);$('#connectGate').classList.add('hidden');onPanel(cur,true);};
+  sock.onclose=e=>{clearTimeout(openT);if(ws!==sock) return;setStatus(false);
     if(e.code===4001){token=null;LS.set('token',null);showPair('Este celular foi desconectado do PC. Pareie de novo.');return;}
+    const alt=!opened&&altHost();
+    if(alt){ host=alt; setTimeout(()=>{ if(!document.hidden) connect(); }, 300); return; } // troca casa <-> fora de casa
     setTimeout(()=>{ if(!document.hidden) connect(); }, Math.min(5000,400*2**retry++));};
-  ws.onmessage=e=>{try{handle(JSON.parse(e.data))}catch(err){console.error(err)}};
+  sock.onmessage=e=>{try{handle(JSON.parse(e.data))}catch(err){console.error(err)}};
 }
 function send(o){ if(ws&&ws.readyState===1) ws.send(JSON.stringify(o)); }
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ if(!ws||ws.readyState>1) connect(); wake(); } });
@@ -627,7 +641,7 @@ document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ if(!ws|
 function showPair(msg){ $('#pair').classList.remove('hidden'); $('#devname').value=devName();
   const savedMac=LS.get('mac',null);
   $('#pairWolBtn').classList.toggle('hidden',!(APP&&savedMac));
-  if(APP){ $('#appHost').classList.remove('hidden'); $('#pairMsg').textContent=msg||'Digite a sua senha fixa (ou o PIN de 6 dígitos da janela do PC).'; if(host) $('#hostIn').value=host; scan(); }
+  if(APP){ $('#appHost').classList.remove('hidden'); $('#pairMsg').textContent=msg||'Digite a sua senha fixa (ou o PIN de 6 dígitos da janela do PC).'; if(hostLocal||host) $('#hostIn').value=hostLocal||host; $('#hostRemoteIn').value=hostRemote||''; scan(); }
   else if(msg) $('#pairMsg').textContent=msg; }
 function scan(){ if(!APP) return; $('#found').innerHTML='<div class="empty">Procurando...</div>'; try{ NA.discover(); }catch(e){} }
 window.onDiscovered=j=>{ try{ const d=JSON.parse(j); if(d.mac) LS.set('mac',d.mac); const hp=d.ip+':'+(d.porta||8765); const box=$('#found'); const em=$('.empty',box); if(em) em.remove();
@@ -641,8 +655,16 @@ $('#pairBtn').onclick=async()=>{
   const pin=$('#pin').value.trim(); const nome=$('#devname').value.trim()||'Celular';
   if(!pin){$('#pairErr').textContent='Digite a sua senha fixa ou o PIN de 6 dígitos.';return;}
   LS.set('devname',nome); $('#pairErr').textContent='';
-  if(APP){ let hp=$('#hostIn').value.trim().replace(/^https?:\/\//,'').replace(/\/.*$/,''); if(!hp){$('#pairErr').textContent='Escolha o PC ou digite o IP/endereço dele.';return;} if(!/:\d+$/.test(hp)) hp+=':8765'; host=hp; LS.set('host',hp); }
-  try{const r=await fetch(base()+'/api/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin,nome})});
+  if(APP){ const hp=normHost($('#hostIn').value), rem=normHost($('#hostRemoteIn').value);
+    if(!hp&&!rem){$('#pairErr').textContent='Escolha o PC ou digite o IP/endereço dele.';return;}
+    hostLocal=hp||null; hostRemote=rem||null; LS.set('hostLocal',hostLocal); LS.set('hostRemote',hostRemote);
+    host=hp||rem; LS.set('host',host); }
+  const tryPair=async()=>{ const ctl=new AbortController(); const t=setTimeout(()=>ctl.abort(),5000);
+    try{ return await fetch(base()+'/api/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin,nome}),signal:ctl.signal}); }
+    finally{ clearTimeout(t); } };
+  try{let r;
+    try{ r=await tryPair(); }
+    catch(netErr){ const alt=altHost(); if(!alt) throw new Error('Não consegui falar com o PC. Fora de casa? Ligue o Tailscale e preencha o endereço fora de casa.'); host=alt; LS.set('host',host); r=await tryPair(); }
     const j=await r.json(); if(!r.ok) throw new Error(j.erro||'Falhou');
     token=j.token; LS.set('token',token); $('#pair').classList.add('hidden'); $('#pin').value=''; connect();
   }catch(e){$('#pairErr').textContent=e.message||'Não consegui falar com o PC.';}
@@ -653,7 +675,11 @@ $('#gateBtn').onclick=()=>connect();
 /* ============================================================ mensagens do PC */
 function handle(m){
   switch(m.t){
-    case 'hello': hello=m; if(m.mac) LS.set('mac',m.mac); $('#pcname').textContent=m.pc+(m.admin?' · admin':'');
+    case 'hello': hello=m; if(m.mac) LS.set('mac',m.mac);
+      if(APP){ const ts=m.tailscale_ip?`${m.tailscale_ip}:${m.porta||8765}`:null;
+        // aprende sozinho o endereço fora de casa quando o PC está com o Tailscale ligado
+        if(ts&&ts!==hostRemote){ hostRemote=ts; LS.set('hostRemote',ts); }
+        if(host&&host!==hostRemote&&host!==hostLocal){ hostLocal=host; LS.set('hostLocal',host); } } $('#pcname').textContent=m.pc+(m.admin?' · admin':'');
       $('#scrMon').innerHTML=''; for(let i=1;i<=(m.monitores||1);i++) $('#scrMon').append(h('option',{value:i},`Monitor ${i}`));
       buildLaunch(m.apps||[]); break;
     case 'vol': setVol(m.v,m.m); break;
@@ -1263,6 +1289,14 @@ function renderS(){
         h('div',{class:'st'},h('b',{},'🔄 Verificar atualização no GitHub'),h('small',{},`PC: v${hello.versao||'?'}`+(APP?` · App celular: v${NA.version()}`:' · Baixar APK mais recente'))),h('span',{class:'chev'},'›')),
       h('div',{class:'srow link',onclick:()=>ask('Desconectar este celular','Você vai precisar do PIN para conectar de novo.',()=>{ LS.set('token',null); token=null; try{ws.close()}catch(e){} closeSettings(); showPair(); })},
         h('div',{class:'st'},h('b',{style:'color:var(--err)'},'Desconectar este celular'),h('small',{},`${hello.pc||'PC'} · versão ${hello.versao||'?'}`+(APP?` · app ${NA.version()}`:'')))));
+    if(APP) body.append(sec('Fora de casa'),
+      h('div',{class:'srow',style:'flex-wrap:wrap'},
+        h('div',{class:'st'},h('b',{},'Endereço fora de casa (Tailscale)'),
+          h('small',{},hostRemote?'Se a rede de casa não responder (dados móveis), o app usa este endereço sozinho.'
+            :'Instale o Tailscale no PC e no celular com a mesma conta. Conectando em casa, o app aprende o endereço sozinho.')),
+        h('input',{value:hostRemote||'',placeholder:'100.x.x.x:8765',autocomplete:'off',autocapitalize:'off',style:'width:100%;margin-top:8px',
+          onchange:e=>{ const v=normHost(e.target.value); hostRemote=v||null; LS.set('hostRemote',hostRemote); e.target.value=v; toast(v?'Endereço fora de casa salvo':'Endereço fora de casa removido',v||'',v?'ok':'info'); }})),
+      h('div',{class:'srow dis'},h('div',{class:'st'},h('b',{},'Endereço de casa'),h('small',{},hostLocal||'ainda não salvo'))));
     if(APP) body.append(h('div',{class:'srow link',onclick:()=>{ closeSettings(); token=null; LS.set('token',null); try{ws.onclose=null;ws.close()}catch(e){} setStatus(false); showPair('Escolha o PC e digite o PIN dele.'); }},
         h('div',{class:'st'},h('b',{},'Trocar de PC'),h('small',{},host||'')),h('span',{class:'chev'},'›')));
   }
