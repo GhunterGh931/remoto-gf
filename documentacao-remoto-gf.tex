@@ -172,6 +172,13 @@ Todos os itens abaixo estao \feito implementados e testados.
 \begin{itemize}
   \item Ver a tela do PC no celular, com escolha de monitor, taxa de quadros e qualidade.
   \item Tocar na imagem clica naquele ponto; segurar faz clique direito.
+  \item Correcao: antes, todo toque virava clique direito no app Android. O sistema
+  cancelava o toque na imagem e o fim do toque nao chegava, entao o cronometro do clique
+  direito disparava. Agora o app usa eventos de toque e qualquer cancelamento desarma o
+  clique direito.
+  \item Tela deitada com mouse: o botao no canto da imagem abre a tela na horizontal com
+  70\% para a tela do PC e 30\% para um touchpad (mesmos gestos do painel Mouse) com botoes
+  Esquerdo e Direito. ``So tela'' esconde o touchpad e ``Sair'' (ou o botao Voltar) fecha.
 \end{itemize}
 
 \subsection{Energia e sistema}

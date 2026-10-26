@@ -47,6 +47,11 @@ AVISOS NO CELULAR (notificação do Android)
 - Janela de permissão do Windows (UAC): só pode ser confirmada no próprio PC.
 - PIN errado 5 vezes, novo aparelho conectado, desligamento agendado.
 
+TELA DO PC NO CELULAR
+- Toque na imagem para clicar naquele ponto. Segure para o botão direito.
+- O botão no canto da imagem abre a tela deitada: 70% tela do PC e 30% touchpad, com
+  botões Esquerdo e Direito. "Só tela" esconde o touchpad, "Sair" ou Voltar fecha.
+
 PC CONTROLANDO O CELULAR (novo)
 No app do celular tem a aba "Deixar o PC me controlar". Com ela, o PC vê a tela do
 celular e consegue tocar, rolar com a rodinha do mouse, digitar (inclusive Ctrl+V)
