@@ -188,6 +188,14 @@ input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;bac
 .stats div{background:var(--card2);border-radius:12px;padding:10px 4px}
 .stats b{display:block;font-size:19px}
 .stats small{color:var(--mut);font-size:11px}
+#health .hrow{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:13px}
+#health .hrow+.hrow{border-top:1px solid var(--line)}
+#health .hrow b{min-width:52px}
+#health .hrow .hbar{flex:1;height:6px;border-radius:6px;background:var(--card2);overflow:hidden}
+#health .hrow .hbar i{display:block;height:100%;background:var(--acc)}
+#health .hrow .hbar i.ok{background:#4fd38a}
+#health .hrow .hbar i.bad{background:var(--err)}
+#health .hrow small{color:var(--mut);white-space:nowrap}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .chips button{flex:1;background:var(--card2);padding:10px 4px;font-size:13px}
 
@@ -294,6 +302,7 @@ nav button.active{color:var(--acc);background:var(--accbg)}
       <button id="kbQuick"></button>
       <button id="gyroBtn" class="hidden"></button>
       <button id="dragLock">Travar clique</button>
+      <button id="dictPad" aria-label="Ditado por voz">🎤</button>
     </div>
     <input id="padLive" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="send">
   </section>
@@ -359,6 +368,7 @@ nav button.active{color:var(--acc);background:var(--accbg)}
   <section class="panel" data-p="teclado">
     <div class="card">
       <h3 id="liveLbl">Digite e aparece no PC na hora</h3>
+      <button id="dictBtn" class="pri" style="width:100%;margin-bottom:8px">🎤 Falar e digitar no PC</button>
       <input id="live" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="send" placeholder="Toque para digitar">
       <div class="mods" id="mods"></div>
       <div class="grid g4" style="margin-top:8px" id="keysRow"></div>
@@ -410,6 +420,7 @@ nav button.active{color:var(--acc);background:var(--accbg)}
       <select id="scrFps"><option value="3">3 quadros/s</option><option value="10">10 quadros/s</option><option value="15">15 quadros/s</option><option value="24" selected>24 quadros/s</option><option value="30">30 quadros/s</option></select>
       <select id="scrQ"><option value="0">Leve</option><option value="1" selected>Normal</option><option value="2">Nítida</option></select>
     </div>
+    <p class="hint" id="scrNet" style="color:var(--acc)"></p>
     <p class="hint">Toque na imagem para clicar naquele ponto. Segure para o botão direito. O botão no canto abre a tela deitada com a tela do PC (70%) e um touchpad (30%).</p>
   </section>
 
@@ -418,6 +429,7 @@ nav button.active{color:var(--acc);background:var(--accbg)}
     <div class="card"><h3>Status do PC</h3><div class="stats">
       <div><b id="stCpu">--</b><small>CPU</small></div><div><b id="stRam">--</b><small>RAM</small></div>
       <div><b id="stBat">--</b><small>Bateria</small></div><div><b id="stUp">--</b><small>Ligado há</small></div></div></div>
+    <div class="card"><h3>Saúde do PC</h3><div id="health"><div class="empty">Carregando...</div></div></div>
     <div class="card"><h3>Energia</h3><div class="grid g2">
       <button id="wolBtn" class="pri" style="grid-column:span 2">⚡ Ligar PC (Wake-on-LAN)</button>
       <button data-power="lock">Bloquear</button><button data-power="monitor_off">Desligar a tela</button>
@@ -651,7 +663,7 @@ function connect(){
   ws=sock; let opened=false;
   // nos dados móveis o IP de casa não responde (fica pendurado): desiste rápido e tenta o outro endereço
   openT=setTimeout(()=>{ if(!opened&&ws===sock){ try{ sock.close(); }catch(e){} } }, altHost()?6000:10000);
-  sock.onopen=()=>{opened=true;clearTimeout(openT);retry=0;everConnected=true;if(APP) LS.set('host',host);setStatus(true);$('#connectGate').classList.add('hidden');onPanel(cur,true);};
+  sock.onopen=()=>{opened=true;clearTimeout(openT);retry=0;everConnected=true;if(APP) LS.set('host',host);setStatus(true);$('#connectGate').classList.add('hidden');onPanel(cur,true);setTimeout(processShare,300);};
   sock.onclose=e=>{clearTimeout(openT);if(ws!==sock) return;setStatus(false);
     if(e.code===4001){token=null;LS.set('token',null);showPair('Este celular foi desconectado do PC. Pareie de novo.');return;}
     const alt=!opened&&altHost();
@@ -1157,6 +1169,7 @@ const Qs=[[720,45],[1100,60],[1600,75]];
 let scrPoll=false, scrStreamT=0;
 const scrQs=()=>{ const [w,q]=Qs[+$('#scrQ').value]; return `t=${encodeURIComponent(token)}&m=${$('#scrMon').value||1}&w=${w}&q=${q}`; };
 function startScreen(){
+  loadScrPrefs();
   if(!scrPoll) return startStream();
   startPolling();
 }
@@ -1227,24 +1240,59 @@ $('#fsBtn').onclick=()=>{ const b=$('#scrBox'); const on=b.classList.contains('a
   setScrFull(!on); };
 $('#sHide').onclick=()=>$('#scrBox').classList.remove('split');
 $('#sExit').onclick=()=>setScrFull(false);
-(()=>{ const f=LS.get('scrFps',null), q=LS.get('scrQ',null); if(f&&$(`#scrFps option[value="${f}"]`)) $('#scrFps').value=f; if(q!=null) $('#scrQ').value=q; })();
-$$('#scrMon,#scrFps,#scrQ').forEach(s=>s.onchange=()=>{ LS.set('scrFps',$('#scrFps').value); LS.set('scrQ',$('#scrQ').value); if(cur==='tela') startScreen(); });
+/* Configuração separada para fora de casa (Tailscale/dados móveis): começa leve (10 quadros/s,
+   qualidade Leve) para gastar menos internet. Em casa continua 24 quadros/s, Normal. */
+const scrRemote=()=>APP&&!!host&&(host===hostRemote||/^100\./.test(host));
+function loadScrPrefs(){ const r=scrRemote()?'R':'';
+  const f=LS.get('scrFps'+r,r?'10':'24'), q=LS.get('scrQ'+r,r?'0':'1');
+  if($(`#scrFps option[value="${f}"]`)) $('#scrFps').value=f; $('#scrQ').value=q;
+  const hint=$('#scrNet'); if(hint) hint.textContent=r?'Fora de casa: configuração econômica (dá para mudar)':''; }
+loadScrPrefs();
+$$('#scrMon,#scrFps,#scrQ').forEach(s=>s.onchange=()=>{ const r=scrRemote()?'R':''; LS.set('scrFps'+r,$('#scrFps').value); LS.set('scrQ'+r,$('#scrQ').value); if(cur==='tela') startScreen(); });
 
 /* ============================================================ energia e área de transferência */
 function setStats(m){ $('#stCpu').textContent=m.cpu!=null?Math.round(m.cpu)+'%':'--'; $('#stRam').textContent=m.ram!=null?Math.round(m.ram)+'%':'--';
   $('#stBat').textContent=m.bat!=null?m.bat+'%'+(m.carregando?'⚡':''):'Tomada';
-  if(m.uptime!=null){ const hrs=Math.floor(m.uptime/3600), mn=Math.floor(m.uptime%3600/60); $('#stUp').textContent=hrs?`${hrs}h${String(mn).padStart(2,'0')}`:`${mn}min`; } }
+  if(m.uptime!=null){ const hrs=Math.floor(m.uptime/3600), mn=Math.floor(m.uptime%3600/60); $('#stUp').textContent=hrs?`${hrs}h${String(mn).padStart(2,'0')}`:`${mn}min`; }
+  // saúde: GPU, CPU e discos
+  const box=$('#health'); if(!box) return; box.innerHTML='';
+  const row=(nome,pct,info,cls)=>h('div',{class:'hrow'},h('b',{},nome),h('div',{class:'hbar'},h('i',{class:cls||'',style:`width:${Math.max(2,Math.min(100,pct))}%`})),h('small',{},info));
+  if(m.gpu){ const g=m.gpu; box.append(row('GPU',g.uso,`${g.temp}°C · uso ${g.uso}% · ${(g.mem_usada/1024).toFixed(1)}/${(g.mem_total/1024).toFixed(0)} GB`,g.temp>=85?'bad':(g.temp<70?'ok':''))); }
+  if(m.cpu_temp!=null) box.append(row('CPU',m.cpu||0,`${m.cpu_temp}°C · uso ${Math.round(m.cpu||0)}%`,m.cpu_temp>=90?'bad':'ok'));
+  for(const d of (m.discos||[])){ const livrePct=100-d.pct; box.append(row(d.nome,d.pct,`${fmtSize(d.livre)} livres de ${fmtSize(d.total)}`,livrePct<10?'bad':(livrePct>25?'ok':''))); }
+  if(!box.children.length) box.append(h('div',{class:'empty'},'Atualize o Remoto GF do PC para ver GPU e discos.'));
+}
 $$('[data-power]').forEach(b=>b.onclick=()=>{ const go=()=>{ send({t:'power',a:b.dataset.power}); tick(); };
   b.dataset.ask?ask(b.textContent,b.dataset.ask,go,b.textContent):go(); });
 $$('[data-timer]').forEach(b=>b.onclick=()=>ask('Desligar automaticamente',`O PC vai desligar em ${b.textContent}. Confirmar?`,()=>send({t:'power',a:'timer',min:+b.dataset.timer})));
 let lastSyncedClip='';
-function triggerWol(){
+/* Ligar o PC: manda o pacote mágico direto (funciona em casa) e, se houver um relé configurado
+   (wol_relay.py no servidor caseiro, pelo Tailscale), pede para o relé mandar na rede de casa.
+   Assim funciona também fora de casa. Depois acompanha pelo relé até o PC responder. */
+const relayFetch=async(path,opts={})=>{ const r=LS.get('relay',null), tk=LS.get('relayTok','');
+  const ctl=new AbortController(); const tm=setTimeout(()=>ctl.abort(),6000);
+  try{ const res=await fetch(`http://${r}${path}`,{...opts,signal:ctl.signal}); const j=await res.json().catch(()=>({})); if(!res.ok) throw new Error(j.erro||('HTTP '+res.status)); return j; }
+  finally{ clearTimeout(tm); } };
+async function triggerWol(){
   const mac=LS.get('mac',null);
   if(!mac){ toast('MAC ainda não salvo','Conecte ao PC pelo menos uma vez para o celular memorizar a placa de rede dele.','warn'); return; }
-  if(!APP||!NA.wakeOnLan){ toast('Disponível no app instalado','O envio de pacote mágico UDP Wake-on-LAN requer o app Android instalado.','warn'); return; }
-  NA.wakeOnLan(mac, host||'');
-  toast('Sinal enviado (Wake-on-LAN)',`Pacote mágico enviado para ${mac}. O PC deve ligar em alguns segundos.`,'ok');
+  const relay=LS.get('relay',null);
+  if(APP&&NA.wakeOnLan) NA.wakeOnLan(mac, hostLocal||host||'');
+  else if(!relay){ toast('Disponível no app instalado','O envio de pacote mágico UDP Wake-on-LAN requer o app Android instalado.','warn'); return; }
   tick(true);
+  if(!relay){ toast('Sinal enviado (Wake-on-LAN)',`Pacote mágico enviado para ${mac}. O PC deve ligar em alguns segundos. Fora de casa, configure o relé em Configurações > Fora de casa.`,'ok',[],'wol'); return; }
+  try{
+    await relayFetch('/wol',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:LS.get('relayTok',''),mac})});
+    toast('Ligando o PC...','O relé de casa mandou o sinal. Aguardando o PC responder.','info',[],'wol',true);
+  }catch(e){ toast('Relé não respondeu',`${e.message||e}. Confira o endereço e o token do relé e se o Tailscale está ligado.`,'error',[],'wol',true); return; }
+  const ip=(hostLocal||host||'').split(':')[0];
+  if(!ip) return;
+  for(let i=0;i<24;i++){                       // até 2 minutos
+    await new Promise(r=>setTimeout(r,5000));
+    try{ const j=await relayFetch(`/status?t=${encodeURIComponent(LS.get('relayTok',''))}&ip=${encodeURIComponent(ip)}`);
+      if(j.online){ toast('PC ligado','O Remoto GF do PC já está respondendo. Conectando...','ok',[],'wol'); connect(); return; } }catch(e){}
+  }
+  toast('O PC não respondeu ainda','Ele pode estar demorando para iniciar, ou o Wake-on-LAN não está ativo na BIOS/placa de rede.','warn',[],'wol',true);
 }
 $('#wolBtn').onclick=triggerWol;
 $('#pairWolBtn').onclick=triggerWol;
@@ -1254,6 +1302,48 @@ $('#clipType').onclick=()=>{ const v=$('#clip').value; if(v){ send({t:'type',tex
 $('#clipCopy').onclick=async()=>{ const ta=$('#clip'); if(APP){ NA.copy(ta.value); fb('Copiado no celular'); tick(); return; } try{ await navigator.clipboard.writeText(ta.value); }catch(e){ ta.select(); document.execCommand('copy'); } fb('Copiado no celular'); tick(); };
 
 /* ============================================================ arquivos entre PC e celular */
+/* ============================================================ ditado por voz */
+/* Usa o reconhecimento de voz do Android (o mesmo do teclado do Google) e digita o texto
+   onde o cursor estiver no PC. "Ponto", "vírgula" etc. viram pontuação pelo próprio Android. */
+function dictate(){
+  if(!APP||!NA.dictate){ toast('Disponível no app instalado','O ditado usa o reconhecimento de voz do Android.','warn'); return; }
+  try{ NA.dictate(); }catch(e){ toast('Ditado indisponível',String(e),'error'); }
+}
+window.onDictation=txt=>{ txt=String(txt||'').trim(); if(!txt) return;
+  send({t:'type',text:txt+' '}); fb('Ditado: '+(txt.length>28?txt.slice(0,28)+'…':txt)); tick(); };
+window.onDictationError=msg=>toast('Ditado',msg||'Não entendi. Tente de novo.','warn');
+$('#dictBtn').onclick=dictate; $('#dictPad').onclick=dictate;
+
+/* ============================================================ compartilhar > Enviar ao PC */
+/* Outro app (galeria, WhatsApp, navegador...) compartilhou com o Remoto GF:
+   arquivos vão para Downloads\\Remoto GF no PC, links abrem no navegador do PC e texto
+   vai para a área de transferência do PC. Espera conectar se ainda não estiver. */
+let shareQ=null;
+window.onShared=()=>{ try{ const j=NA.takeShared&&NA.takeShared(); if(j) shareQ=JSON.parse(j); }catch(e){} processShare(); };
+function processShare(){
+  if(!shareQ) return;
+  if(!ws||ws.readyState!==1){ toast('Compartilhado com o Remoto GF','Vou enviar ao PC assim que conectar.','info',[],'share'); return; }
+  const q=shareQ; shareQ=null;
+  const txt=(q.text||'').trim(), files=q.files||[];
+  if(files.length){
+    toast('Enviando ao PC',`${files.length} arquivo(s)...`,'info',[],'share',true);
+    try{ NA.uploadShared(base(),token||'',devName()); }catch(e){ toast('Erro ao enviar',String(e),'error',[],'share'); }
+  }
+  if(txt){
+    const m=txt.match(/https?:\/\/\S+/i);
+    if(m&&!files.length){ send({t:'open_url',url:m[0]}); }
+    else if(!files.length){ send({t:'clip_set',text:txt}); toast('Texto enviado ao PC','Está na área de transferência do PC: é só dar Ctrl+V.','ok',[],'share'); }
+  }
+  tick(true);
+}
+window.onShareProgress=(i,n,name)=>toast('Enviando ao PC',`${i+1} de ${n}: ${name}`,'info',[],'share',true);
+window.onShareDone=(ok,n,err)=>{
+  if(ok===n) toast('Enviado ao PC',`${ok} arquivo(s) em Downloads\\Remoto GF.`,'ok',[],'share');
+  else toast('Envio incompleto',`${ok} de ${n} enviados. ${err||''}`,'error',[],'share',true);
+  try{ if(cur==='arquivos') onPanel('arquivos',true); }catch(e){}
+};
+if(APP) setTimeout(()=>window.onShared(),0);
+
 /* ============================================================ downloads do PC */
 /* O Baixador Drive GF (e qualquer app que grave em %LOCALAPPDATA%\\GF\\progresso) manda o progresso pelo PC.
    Aqui vira uma faixa no topo do app e, no app instalado, uma notificação com barra de progresso. */
@@ -1261,7 +1351,9 @@ const dlSeen={};   // id -> último estado mostrado (para avisar só uma vez qua
 const dlFmtT=s=>{ if(s==null||!isFinite(s)) return '?'; s=Math.round(s); if(s<60) return s+' s'; if(s<3600) return Math.round(s/60)+' min'; const h=Math.floor(s/3600); return `${h} h ${Math.round((s%3600)/60)} min`; };
 function dlLine(d){
   const g=d.geral||{};
-  if(d.estado==='baixando') return `${(d.pct??0).toFixed(1)}% · ${fmtSize(d.vel||0)}/s · faltam ${dlFmtT(d.resta)}`;
+  if(d.estado==='baixando') return d.tipo==='render'
+    ? `${(d.pct??0).toFixed(1)}% · faltam ${dlFmtT(d.resta)}${d.timeline?' · '+d.timeline:''}`
+    : `${(d.pct??0).toFixed(1)}% · ${fmtSize(d.vel||0)}/s · faltam ${dlFmtT(d.resta)}`;
   if(d.estado==='pausado') return `Pausado em ${(d.pct??0).toFixed(1)}%`;
   return d.msg||({concluido:'Concluído',parado:'Parado',erro:'Terminou com erro'}[d.estado]||d.estado||'');
 }
@@ -1274,7 +1366,7 @@ function renderProgress(itens){
     const pct=d.estado==='baixando'||d.estado==='pausado'?(d.pct||0):(d.estado==='concluido'?100:(g.pct||0));
     bar.classList.toggle('paused',d.estado!=='baixando');
     bar.innerHTML='';
-    bar.append(h('div',{class:'dlrow'},h('span',{},d.estado==='baixando'?'⬇':(d.estado==='concluido'?'✓':'⏸')),h('b',{},nome),h('span',{},`${Math.round(pct)}%`)),
+    bar.append(h('div',{class:'dlrow'},h('span',{},d.estado==='baixando'?(d.tipo==='render'?'🎬':'⬇'):(d.estado==='concluido'?'✓':'⏸')),h('b',{},nome),h('span',{},`${Math.round(pct)}%`)),
       h('div',{class:'dlbar'},h('i',{style:`width:${Math.max(0,Math.min(100,pct))}%`})),
       h('div',{class:'dlmore'},...mostrar.map(x=>{ const gx=x.geral||{};
         return h('div',{class:'dlitem'},h('div',{},`${x.app||'App'}: ${dlLine(x)}`),
@@ -1289,8 +1381,8 @@ function renderProgress(itens){
   for(const d of itens){ vivos.add(d.id); const nome=(d.arquivo||'').split(/[\\/]/).pop()||d.app;
     if(d.estado==='baixando'||d.estado==='pausado'){
       const g=d.geral||{};
-      const extra=g.arquivos?` · fila ${g.arquivos}`:'';
-      try{ NA.progress(d.id,`${d.estado==='pausado'?'Pausado':'Baixando'}: ${nome}`,dlLine(d)+extra,Math.round(d.pct||0),d.estado==='pausado'); }catch(e){}
+      const extra=g.arquivos?` · ${d.tipo==='render'?'render':'fila'} ${g.arquivos}`:'';
+      try{ NA.progress(d.id,`${d.estado==='pausado'?'Pausado':(d.tipo==='render'?'Renderizando':'Baixando')}: ${nome}`,dlLine(d)+extra,Math.round(d.pct||0),d.estado==='pausado'); }catch(e){}
     }else if(dlSeen[d.id]!==d.estado){
       try{ NA.progressDone(d.id,`${d.app||'Download'}: ${({concluido:'concluído',parado:'parado',erro:'com erro'}[d.estado]||d.estado)}`,d.msg||''); }catch(e){}
     }
@@ -1432,7 +1524,15 @@ function renderS(){
             :'Instale o Tailscale no PC e no celular com a mesma conta. Conectando em casa, o app aprende o endereço sozinho.')),
         h('input',{value:hostRemote||'',placeholder:'100.x.x.x:8765',autocomplete:'off',autocapitalize:'off',style:'width:100%;margin-top:8px',
           onchange:e=>{ const v=normHost(e.target.value); hostRemote=v||null; LS.set('hostRemote',hostRemote); e.target.value=v; toast(v?'Endereço fora de casa salvo':'Endereço fora de casa removido',v||'',v?'ok':'info'); }})),
-      h('div',{class:'srow dis'},h('div',{class:'st'},h('b',{},'Endereço de casa'),h('small',{},hostLocal||'ainda não salvo'))));
+      h('div',{class:'srow dis'},h('div',{class:'st'},h('b',{},'Endereço de casa'),h('small',{},hostLocal||'ainda não salvo'))),
+      h('div',{class:'srow',style:'flex-wrap:wrap'},
+        h('div',{class:'st'},h('b',{},'Relé para ligar o PC'),
+          h('small',{},'Aparelho sempre ligado em casa rodando wol_relay.py (ex.: servidor caseiro), com Tailscale. Permite ligar o PC fora de casa.')),
+        h('input',{value:LS.get('relay','')||'',placeholder:'IP do relé no Tailscale (100.x.x.x:8766)',autocomplete:'off',autocapitalize:'off',style:'width:100%;margin-top:8px',
+          onchange:e=>{ let v=String(e.target.value||'').trim().replace(/^https?:\/\//,'').replace(/\/.*$/,''); if(v&&!/:\d+$/.test(v)) v+=':8766'; LS.set('relay',v||null); e.target.value=v; }}),
+        h('input',{value:LS.get('relayTok','')||'',placeholder:'Token do relé (aparece ao abrir o wol_relay.py)',autocomplete:'off',autocapitalize:'off',style:'width:100%;margin-top:8px',
+          onchange:e=>{ LS.set('relayTok',e.target.value.trim()); }}),
+        h('button',{style:'width:100%;margin-top:8px',onclick:async()=>{ try{ const j=await relayFetch('/ping'); toast(j.ok?'Relé encontrado':'Resposta estranha do relé','','ok'); }catch(e){ toast('Relé não respondeu',String(e.message||e),'error'); } }},'Testar relé')));
     if(APP) body.append(h('div',{class:'srow link',onclick:()=>{ closeSettings(); token=null; LS.set('token',null); try{ws.onclose=null;ws.close()}catch(e){} setStatus(false); showPair('Escolha o PC e digite o PIN dele.'); }},
         h('div',{class:'st'},h('b',{},'Trocar de PC'),h('small',{},host||'')),h('span',{class:'chev'},'›')));
   }
