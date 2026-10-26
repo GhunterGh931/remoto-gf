@@ -18,6 +18,7 @@ import os
 import platform
 import queue
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
@@ -134,6 +135,125 @@ def read_progress() -> list:
         d["id"] = f.stem
         out.append(d)
     return out
+
+
+def write_progress(name: str, data: dict):
+    """Grava um progresso no mesmo formato dos apps GF (troca atômica)."""
+    try:
+        d = progress_dir()
+        data = dict(data, atualizado=time.time())
+        tmp = d / (name + ".json.tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, d / (name + ".json"))
+    except Exception:
+        pass
+
+
+class ResolveWatch:
+    """Acompanha a fila de render do DaVinci Resolve pela API de script e publica o progresso
+    (aparece no celular como os downloads). Precisa do Resolve aberto e de
+    Preferências > Sistema > Geral > "Script externo usando: Local"."""
+
+    NOME = "davinci-resolve"
+
+    def __init__(self):
+        self.resolve = None
+        self.sessao = None      # {"inicio", "ids": set(jobs da fila quando começou)}
+        self.ultimo_erro = 0
+
+    def _resolve_aberto(self):
+        try:
+            import psutil
+            return any((p.info.get("name") or "").lower() in ("resolve.exe", "resolve")
+                       for p in psutil.process_iter(["name"]))
+        except Exception:
+            return True  # sem psutil: tenta assim mesmo
+
+    def _conectar(self):
+        if self.resolve is not None:
+            return self.resolve
+        lib = os.environ.get("RESOLVE_SCRIPT_LIB") or (
+            r"C:\Program Files\Blackmagic Design\DaVinci Resolve\fusionscript.dll" if IS_WIN else
+            "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so"
+            if sys.platform == "darwin" else "/opt/resolve/libs/Fusion/fusionscript.so")
+        if not os.path.exists(lib):
+            return None
+        import importlib.machinery
+        import importlib.util
+        loader = importlib.machinery.ExtensionFileLoader("fusionscript", lib)
+        spec = importlib.util.spec_from_loader("fusionscript", loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+        self.resolve = mod.scriptapp("Resolve")
+        return self.resolve
+
+    def tick(self):
+        if not self._resolve_aberto():
+            self.resolve = None
+            if self.sessao:
+                self._fim("parado", "O DaVinci Resolve foi fechado durante o render.")
+            return
+        try:
+            r = self._conectar()
+            if r is None:
+                return
+            proj = r.GetProjectManager().GetCurrentProject()
+            if not proj:
+                return
+            jobs = proj.GetRenderJobList() or []
+            st = {j["JobId"]: (proj.GetRenderJobStatus(j["JobId"]) or {}) for j in jobs}
+            rendering = bool(proj.IsRenderingInProgress())
+        except Exception as e:
+            self.resolve = None  # perdeu a conexão (Resolve reiniciou, projeto trocou...)
+            if time.time() - self.ultimo_erro > 300:
+                self.ultimo_erro = time.time()
+                log("DaVinci Resolve (script externo):", e)
+            return
+        if rendering and not self.sessao:
+            ids = {j for j, s_ in st.items() if s_.get("JobStatus") != "Complete"}
+            self.sessao = {"inicio": time.time(), "ids": ids or set(st)}
+        if not self.sessao:
+            return
+        ids = [j for j in self.sessao["ids"] if j in st]
+        total = len(ids) or 1
+        feitos = sum(1 for j in ids if st[j].get("JobStatus") == "Complete")
+        falhas = sum(1 for j in ids if st[j].get("JobStatus") in ("Failed", "Cancelled"))
+        if rendering:
+            atual = next((j for j in ids if st[j].get("JobStatus") == "Rendering"), None)
+            info = next((j_ for j_ in jobs if j_["JobId"] == atual), {}) if atual else {}
+            s_ = st.get(atual, {}) if atual else {}
+            pct = float(s_.get("CompletionPercentage") or 0)
+            resta = s_.get("EstimatedTimeRemainingInMs")
+            write_progress(self.NOME, {
+                "app": "DaVinci Resolve", "tipo": "render", "estado": "baixando",
+                "arquivo": info.get("OutputFilename") or info.get("TimelineName") or "Render",
+                "pct": round(pct, 1), "resta": (resta / 1000) if resta else None,
+                "timeline": info.get("TimelineName"),
+                "geral": {"pct": round((feitos * 100 + pct) / total, 1), "arquivos": f"{feitos}/{total}"},
+            })
+        else:
+            dur = time.time() - self.sessao["inicio"]
+            m, s2 = divmod(int(dur), 60)
+            h, m = divmod(m, 60)
+            dur_txt = f"{h} h {m} min" if h else f"{m} min {s2} s"
+            if falhas:
+                self._fim("erro", f"{feitos} de {total} render(s) prontos, {falhas} com erro ou cancelado(s). Tempo: {dur_txt}.")
+            elif feitos >= total:
+                self._fim("concluido", f"Render pronto: {feitos} arquivo(s) em {dur_txt}.")
+            else:
+                self._fim("parado", f"Render parado: {feitos} de {total} prontos.")
+
+    def _fim(self, estado, msg):
+        write_progress(self.NOME, {"app": "DaVinci Resolve", "tipo": "render", "estado": estado, "msg": msg})
+        self.sessao = None
+
+    def loop(self):
+        while True:
+            try:
+                self.tick()
+            except Exception as e:
+                log("render do Resolve:", e)
+            time.sleep(2)
 
 
 def files_dir() -> Path:
@@ -1059,7 +1179,65 @@ class System:
                 out["carregando"] = bool(b.power_plugged)
         except Exception:
             pass
+        out["discos"] = self.discos()
+        g = self.gpu()
+        if g:
+            out["gpu"] = g
+        t = self.cpu_temp()
+        if t is not None:
+            out["cpu_temp"] = t
         return out
+
+    def discos(self):
+        """Espaço livre de cada disco fixo (painel de saúde)."""
+        res = []
+        try:
+            for part in self.psutil.disk_partitions(all=False):
+                if IS_WIN and ("cdrom" in part.opts or not part.fstype):
+                    continue
+                try:
+                    u = self.psutil.disk_usage(part.mountpoint)
+                except Exception:
+                    continue
+                res.append({"nome": part.mountpoint.rstrip("\\/") or part.mountpoint,
+                            "total": u.total, "livre": u.free, "pct": round(u.percent, 1)})
+        except Exception:
+            pass
+        return res
+
+    _gpu_cache = (0.0, None)
+
+    def gpu(self):
+        """Temperatura, uso e memória da placa NVIDIA (via nvidia-smi, que vem com o driver)."""
+        t, val = System._gpu_cache
+        if time.time() - t < 2.5:
+            return val
+        val = None
+        exe = shutil.which("nvidia-smi") or (r"C:\Windows\System32\nvidia-smi.exe" if IS_WIN else None)
+        if exe and os.path.exists(exe):
+            try:
+                r = subprocess.run([exe, "--query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total",
+                                    "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=3,
+                                   creationflags=0x08000000 if IS_WIN else 0)
+                nome, temp, uso, mu, mt = [x.strip() for x in r.stdout.strip().splitlines()[0].split(",")]
+                val = {"nome": nome, "temp": int(float(temp)), "uso": int(float(uso)),
+                       "mem_usada": int(float(mu)), "mem_total": int(float(mt))}
+            except Exception:
+                val = None
+        System._gpu_cache = (time.time(), val)
+        return val
+
+    def cpu_temp(self):
+        """Temperatura da CPU quando o sistema expõe (Linux/macOS). No Windows quase nunca
+        está disponível sem programas extras, então o painel mostra só a da GPU."""
+        try:
+            temps = self.psutil.sensors_temperatures()
+            for chave in ("coretemp", "k10temp", "cpu_thermal", "acpitz"):
+                if temps.get(chave):
+                    return round(max(x.current for x in temps[chave]))
+        except Exception:
+            pass
+        return None
 
     def _need_win(self):
         if not IS_WIN:
@@ -1523,6 +1701,7 @@ class Hub:
         await resp.prepare(req)
         intervalo = 1.0 / fps
         nxt = None
+        ultimo, ultimo_t = None, 0.0
         try:
             while True:
                 t0 = time.perf_counter()
@@ -1530,6 +1709,14 @@ class Hub:
                 fut = nxt or self.loop.run_in_executor(self.scr_exec, self.scr.grab, m, w, q)
                 data = await fut
                 nxt = self.loop.run_in_executor(self.scr_exec, self.scr.grab, m, w, q)
+                # tela parada = quadro idêntico: não manda de novo (economiza internet fora de casa).
+                # Reenvia a cada 5 s só para a conexão não ser derrubada por inatividade.
+                if data == ultimo and t0 - ultimo_t < 5:
+                    await asyncio.sleep(intervalo)
+                    continue
+                ultimo, ultimo_t = data, t0
+                # write espera a rede escoar: em conexão lenta o laço desacelera sozinho
+                # (menos quadros, sem acumular atraso)
                 await resp.write(b"--gfquadro\r\nContent-Type: image/jpeg\r\nContent-Length: "
                                  + str(len(data)).encode() + b"\r\n\r\n" + data + b"\r\n")
                 espera = intervalo - (time.perf_counter() - t0)
@@ -1838,6 +2025,35 @@ class Hub:
     def progress_msg(self):
         return {"t": "progress", "itens": self._progress}
 
+    async def check_disk_for_downloads(self, itens):
+        """Avisa no celular se o disco de destino de um download não vai ter espaço para terminar."""
+        avisados = getattr(self, "_disk_warned", {})
+        self._disk_warned = avisados
+        for d in itens:
+            if d.get("estado") not in ("baixando", "pausado") or not d.get("destino"):
+                continue
+            g = d.get("geral") or {}
+            if g.get("total"):
+                falta = max(0, int(g.get("total") or 0) - int(g.get("feito") or 0))
+            else:  # app sem fila (ex.: Downloader de Mídia GF): usa o arquivo atual
+                falta = max(0, int(d.get("total") or 0) - int(d.get("feito") or 0))
+            try:
+                livre = shutil.disk_usage(d["destino"]).free
+            except Exception:
+                continue
+            margem = 2 * 1024 ** 3
+            chave = (d.get("id"), d["destino"])
+            if falta and livre < falta + margem:
+                if self.clients and time.time() - avisados.get(chave, 0) > 1800:  # no máximo a cada 30 min
+                    avisados[chave] = time.time()
+                    gb = lambda n: f"{n / 1024 ** 3:.1f} GB"
+                    await self.notify("Disco vai encher",
+                                      f"{d.get('app', 'Download')}: faltam {gb(falta)} para baixar, mas o disco de "
+                                      f"{d['destino']} só tem {gb(livre)} livres. Libere espaço ou troque o destino.",
+                                      "warn", nid="disco", sticky=True)
+            else:
+                avisados.pop(chave, None)
+
     async def watch_progress(self):
         """Repassa ao celular o progresso dos downloads publicados pelos apps GF."""
         last = None
@@ -1855,6 +2071,7 @@ class Hub:
             self._progress = itens
             if self.clients:
                 await self.broadcast(self.progress_msg())
+            await self.check_disk_for_downloads(itens)
 
     async def watch(self):
         last_wins = None
@@ -1935,6 +2152,7 @@ class Hub:
         threading.Thread(target=self.discovery_thread, daemon=True, name="descoberta").start()
         self.loop.create_task(self.watch())
         self.loop.create_task(self.watch_progress())
+        threading.Thread(target=ResolveWatch().loop, daemon=True, name="resolve").start()
 
     async def kick_all(self):
         for ws in list(self.clients):

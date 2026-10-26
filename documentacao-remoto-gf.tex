@@ -289,6 +289,56 @@ Qualquer app pode aparecer gravando um JSON na mesma pasta, com os campos \textt
 notificacao so atualiza enquanto o app do celular esta aberto ou em segundo plano.
 
 % ============================================================
+\section{Render do DaVinci Resolve no celular}
+O Remoto GF le a fila de render pela API de script do Resolve (\texttt{fusionscript.dll}),
+a cada 2 segundos e so com o Resolve aberto. Ele publica o progresso no mesmo formato dos
+downloads (\texttt{davinci-resolve.json}, com \texttt{tipo: render}). O celular mostra
+``Renderizando'', a porcentagem, o tempo restante, a timeline e a posicao na fila; ao terminar
+avisa com som (pronto, parado ou com erro). Requisito: no Resolve, Preferencias > Sistema >
+Geral > ``Script externo usando: Local''.
+
+\section{Notificacao sempre viva}
+Enquanto ha download ou render, o app Android inicia um servico em primeiro plano
+(\texttt{ProgressService}, tipo \texttt{dataSync}) que usa a propria notificacao de progresso.
+Assim o Android nao fecha o app em segundo plano. O servico para sozinho quando o ultimo
+item termina.
+
+\section{Compartilhar com o PC}
+O app aparece como ``Enviar ao PC'' no menu Compartilhar do Android (\texttt{ACTION\_SEND} e
+\texttt{ACTION\_SEND\_MULTIPLE}). Arquivos sao enviados pela rota \texttt{/api/upload} (pasta
+Downloads\textbackslash Remoto GF), links abrem no navegador do PC e texto vai para a area de
+transferencia. Se ainda nao estiver conectado, envia ao conectar.
+
+\section{Ditado por voz}
+Botao de microfone no painel Teclado e no touchpad. Usa o reconhecimento de voz do Android
+(\texttt{RecognizerIntent}, pt-BR) e digita o texto no PC.
+
+\section{Saude do PC}
+No painel Energia: temperatura, uso e memoria da GPU NVIDIA (via \texttt{nvidia-smi}),
+espaco livre de cada disco e temperatura da CPU quando o sistema expoe (Linux; no Windows
+normalmente nao ha sem programas extras). Se um download publicar a pasta de destino
+(\texttt{destino}) e o espaco livre for menor que o que falta mais 2 GB, o celular recebe um
+aviso (no maximo a cada 30 minutos).
+
+\section{Ligar o PC de fora de casa}
+\texttt{wol\_relay.py} (so biblioteca padrao do Python) roda num aparelho sempre ligado em
+casa e no Tailscale, na porta 8766, com token. Rotas: \texttt{/ping}, \texttt{/wol} (manda o
+pacote magico na rede de casa) e \texttt{/status} (testa se o Remoto GF do PC responde). O app
+usa o relé quando configurado e acompanha por ate 2 minutos ate o PC ligar.
+
+\section{Tela do PC economica fora de casa}
+\begin{itemize}
+  \item Perfil proprio fora de casa (endereco do Tailscale): 10 quadros/s e qualidade Leve por
+  padrao, salvo separado do perfil de casa.
+  \item Quadros identicos (tela parada) nao sao reenviados; so um a cada 5 s para manter a
+  conexao.
+  \item O envio espera a rede escoar, entao em conexao lenta a taxa de quadros cai sozinha sem
+  acumular atraso.
+  \item Video H.264 por WebRTC (bem mais economico) fica como proximo passo: exige
+  bibliotecas grandes no PC (aiortc/FFmpeg) e testes no aparelho.
+\end{itemize}
+
+% ============================================================
 \section{Acesso fora de casa (dados moveis)}
 \label{sec:fora}
 
@@ -348,6 +398,13 @@ Acesso fora de casa pelos dados moveis (Tailscale) & Pronto \\
 Ligar o PC pela rede (Wake-on-LAN) em casa & MAC corrigido, testar \\
 Ligar o PC pela rede fora de casa & Planejado \\
 Progresso dos downloads do PC no celular & Pronto \\
+Render do DaVinci Resolve no celular & Pronto \\
+Notificacao viva em segundo plano & Pronto \\
+Compartilhar com o PC & Pronto \\
+Ditado por voz & Pronto \\
+Saude do PC (GPU, discos, aviso de disco cheio) & Pronto \\
+Ligar o PC de fora de casa (relé) & Pronto, falta o servidor \\
+Tela economica fora de casa & Pronto (H.264 depois) \\
 \bottomrule
 \end{tabular}
 \end{center}

@@ -70,6 +70,48 @@ Outros apps podem aparecer também: basta gravar um JSON em %LOCALAPPDATA%\GF\pr
 resta, geral {pct, feito, total, resta, arquivos}, msg). O app fica no celular enquanto o
 Remoto GF está aberto ou em segundo plano.
 
+RENDER DO DAVINCI RESOLVE NO CELULAR
+Com o Resolve aberto, o render aparece igual aos downloads: notificação com barra,
+porcentagem, tempo que falta e "render 1/3" na fila. Ao terminar, avisa com som.
+Precisa ligar uma vez no Resolve: Preferências > Sistema > Geral > "Script externo
+usando: Local".
+
+NOTIFICAÇÃO SEMPRE VIVA
+Enquanto há download ou render, o app segura a notificação como serviço fixo do Android,
+então ela continua atualizando com o app em segundo plano. Só não feche o app
+deslizando ele para fora da lista de recentes.
+
+COMPARTILHAR COM O PC
+Em qualquer app do celular (galeria, WhatsApp, navegador...), toque em Compartilhar >
+"Enviar ao PC":
+- arquivos vão para Downloads\Remoto GF no PC;
+- links abrem no navegador do PC;
+- texto vai para a área de transferência do PC (é só dar Ctrl+V).
+Se o app ainda não estiver conectado, ele envia assim que conectar.
+
+DITADO POR VOZ
+Botão 🎤 no painel Teclado e no touchpad: fale e o texto é digitado onde o cursor
+estiver no PC. Usa o reconhecimento de voz do Android em português.
+
+SAÚDE DO PC (painel Energia)
+Temperatura, uso e memória da placa de vídeo NVIDIA, espaço livre de cada disco e, no
+Linux, temperatura da CPU. Se um download (Baixador Drive GF ou Downloader de Mídia GF)
+não for caber no disco de destino, o celular recebe um aviso.
+
+LIGAR O PC DE FORA DE CASA (relé)
+Em casa o botão "Ligar PC" já funciona. Para funcionar fora de casa, rode o wol_relay.py
+num aparelho que fica sempre ligado em casa e está no Tailscale (o servidor caseiro, por
+exemplo): python3 wol_relay.py. Ele mostra um token. No app: Configurações > Fora de casa
+> Relé para ligar o PC: coloque o IP do relé no Tailscale (100.x.x.x:8766) e o token, e
+toque em "Testar relé". Depois disso o botão manda o sinal pelo relé e avisa quando o PC
+ligou. Precisa do Wake-on-LAN ativo no PC (veja LIGAR O PC PELA REDE).
+
+TELA DO PC FORA DE CASA
+Fora de casa (Tailscale) a tela usa uma configuração própria e econômica: 10 quadros/s
+e qualidade Leve (dá para mudar, e o app lembra). Com a tela parada, o PC não manda
+quadros repetidos, então quase não gasta internet. Em conexão lenta, os quadros diminuem
+sozinhos em vez de atrasar.
+
 PC CONTROLANDO O CELULAR (novo)
 No app do celular tem a aba "Deixar o PC me controlar". Com ela, o PC vê a tela do
 celular e consegue tocar, rolar com a rodinha do mouse, digitar (inclusive Ctrl+V)
