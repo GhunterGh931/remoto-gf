@@ -14,7 +14,24 @@ PRIMEIRO USO
 1. Abra o Remoto GF no PC. Aparece uma janela com QR code e um PIN.
 2. Abra o app no celular. Ele procura o PC sozinho na rede.
 3. Toque no PC encontrado, digite o PIN e pronto.
-Celular e PC precisam estar no mesmo Wi-Fi.
+Em casa, celular e PC ficam na mesma rede (o PC pode estar no cabo ou no Wi-Fi).
+
+FORA DE CASA (DADOS MÓVEIS)
+O app usa o Tailscale, uma rede privada e criptografada entre os seus aparelhos. Nada
+fica aberto na internet e não precisa mexer no roteador.
+1. Instale o Tailscale no PC e no celular e entre com a mesma conta nos dois.
+2. A janela do PC mostra "Fora de casa (Tailscale): 100.x.x.x:8765".
+3. Conecte o celular em casa uma vez: o app aprende esse endereço sozinho. Ele também
+   pode ser digitado na tela de conectar ou em Configurações > Fora de casa.
+4. Fora de casa, deixe o Tailscale ligado no celular e abra o Remoto GF. Se a rede de
+   casa não responder, o app troca sozinho para o endereço do Tailscale.
+Dica: use senha forte e verificação em duas etapas na conta do Tailscale.
+
+LIGAR O PC PELA REDE (WAKE-ON-LAN)
+Funciona só com o celular na mesma rede de casa. No PC: ative o Wake-on-LAN na BIOS,
+ative "Wake on Magic Packet" nas propriedades da placa de rede e desligue a
+inicialização rápida do Windows. Depois de atualizar o PC, conecte o celular uma vez em
+casa para ele salvar o endereço (MAC) certo da placa de rede.
 
 NO PC
 - Fechar a janela deixa ele rodando na bandeja (perto do relógio).
@@ -38,7 +55,8 @@ e abrir o WhatsApp ou qualquer aplicativo instalado no celular direto pela janel
 2. Toque em Iniciar e confirme o pedido de transmissão de tela do Android.
 3. No PC, clique em "Ver meu celular" na janela do Remoto GF.
 Nada começa sem você confirmar. Enquanto dura, fica uma notificação fixa no celular
-com o botão Parar, e só o PC pareado por PIN recebe a imagem. Vai tudo pelo Wi-Fi.
+com o botão Parar, e só o PC pareado por PIN recebe a imagem. Vai pela rede de casa
+ou pelo Tailscale.
 
 PASSAR ARQUIVOS ENTRE PC E CELULAR (novo)
 - Do celular para o PC: abra a aba "Arquivos" no celular, toque em "Escolher arquivo(s)"

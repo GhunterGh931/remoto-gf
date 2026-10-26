@@ -109,7 +109,9 @@ da pessoa. O projeto nao coleta nem envia dados para fora.
 \subsection{Conexao e pareamento}
 
 \begin{itemize}
-  \item Celular e PC precisam estar na mesma rede Wi-Fi.
+  \item Em casa, celular e PC ficam na mesma rede (Wi-Fi ou cabo no PC).
+  \item Fora de casa (dados moveis), a conexao passa pelo Tailscale (ver
+  Secao~\ref{sec:fora}).
   \item O PC mostra um QR Code e um PIN de 6 digitos.
   \item O celular escaneia o QR (ou digita o endereco e o PIN) e fica pareado por um
   token salvo no aparelho.
@@ -251,6 +253,47 @@ local, protegidos pelo mesmo pareamento por PIN.
 \end{nota}
 
 % ============================================================
+\section{Acesso fora de casa (dados moveis)}
+\label{sec:fora}
+
+\subsection{O problema}
+Pelos dados moveis o celular nao enxerga o IP local do PC (192.168.x.x). Abrir porta no
+roteador costuma falhar, porque muitas operadoras usam CGNAT, e ainda deixaria o PC exposto
+na internet.
+
+\subsection{A solucao: Tailscale}
+O Tailscale cria uma rede privada e criptografada entre os aparelhos da mesma conta. O PC
+ganha um IP fixo na faixa 100.x.x.x, que funciona de qualquer lugar. Nada fica aberto para a
+internet: so os aparelhos logados na conta enxergam o PC, e o Remoto GF ainda exige o token
+do pareamento. Recomendado: senha forte e verificacao em duas etapas na conta do Tailscale.
+
+\subsection{Como usar}
+\begin{enumerate}
+  \item Instale o Tailscale no PC e no celular e entre com a mesma conta nos dois.
+  \item Na janela do Remoto GF no PC aparece a linha ``Fora de casa (Tailscale)'' com o
+  endereco 100.x.x.x:8765.
+  \item Conecte o celular em casa uma vez: o app aprende o endereco fora de casa sozinho.
+  Ele tambem pode ser digitado na tela de pareamento ou em Configuracoes, secao
+  ``Fora de casa''.
+  \item Fora de casa, deixe o Tailscale ligado no celular e abra o Remoto GF.
+\end{enumerate}
+
+\subsection{Como o app escolhe o endereco}
+O app guarda dois enderecos: o de casa e o de fora de casa. Ele tenta o endereco usado por
+ultimo; se nao abrir em alguns segundos, troca para o outro sozinho e guarda o que
+funcionou. O Firewall do Windows ja libera o Remoto GF em qualquer rede (perfil ``any'' no
+instalador), entao a rede do Tailscale passa sem configuracao extra.
+
+\subsection{Wake-on-LAN (ligar o PC pela rede)}
+O pacote magico so funciona dentro da rede local, entao fora de casa ele precisa de um
+aparelho sempre ligado na rede de casa para envia-lo (planejado para depois). Correcao feita:
+o PC agora informa o MAC da placa que tem o IP local (cabo ou Wi-Fi). Antes, ele podia
+informar a placa de um adaptador virtual (VirtualBox, VPN), e o pacote ia para o endereco
+errado. Requisitos no PC: Wake-on-LAN ativo na BIOS, ``Wake on Magic Packet'' ativo na placa
+de rede e inicializacao rapida do Windows desligada. Depois de atualizar o PC, conecte o
+celular uma vez em casa para ele salvar o MAC correto.
+
+% ============================================================
 \section{Resumo do estado}
 
 \begin{center}
@@ -265,6 +308,9 @@ Compilacao automatica no GitHub & Pronto \\
 Repositorio publico & Pronto \\
 PC ve e controla o celular (com atalho WhatsApp e apps) & Pronto \\
 Passar arquivos entre PC e celular (nos dois sentidos) & Pronto \\
+Acesso fora de casa pelos dados moveis (Tailscale) & Pronto \\
+Ligar o PC pela rede (Wake-on-LAN) em casa & MAC corrigido, testar \\
+Ligar o PC pela rede fora de casa & Planejado \\
 \bottomrule
 \end{tabular}
 \end{center}

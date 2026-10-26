@@ -1103,7 +1103,49 @@ def lan_ip():
         s.close()
 
 
+def tailscale_ip() -> str:
+    """IP do PC na rede do Tailscale (faixa 100.64.0.0/10), ou "" se o Tailscale não estiver ligado.
+    É por ele que o celular acessa o PC fora de casa (dados móveis), sem abrir porta no roteador."""
+    def is_ts(ip):
+        try:
+            a, b = (int(x) for x in ip.split(".")[:2])
+            return a == 100 and 64 <= b <= 127
+        except Exception:
+            return False
+    try:
+        import psutil
+        for addrs in psutil.net_if_addrs().values():
+            for a in addrs:
+                if a.family == socket.AF_INET and is_ts(a.address):
+                    return a.address
+    except Exception:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            if is_ts(info[4][0]):
+                return info[4][0]
+    except Exception:
+        pass
+    return ""
+
+
 def mac_addr() -> str:
+    """MAC da placa de rede que tem o IP local (cabo ou Wi-Fi), usado pelo Wake-on-LAN.
+    O uuid.getnode() sozinho pode devolver a placa de um adaptador virtual (VirtualBox,
+    Tailscale, VPN), e aí o pacote para ligar o PC vai para o endereço errado."""
+    ip = lan_ip()
+    try:
+        import psutil
+        link = getattr(psutil, "AF_LINK", None)
+        for addrs in psutil.net_if_addrs().values():
+            if any(a.family == socket.AF_INET and a.address == ip for a in addrs):
+                for a in addrs:
+                    if a.family == link and a.address:
+                        mac = a.address.replace("-", ":").upper()
+                        if len(mac) == 17 and mac != "00:00:00:00:00:00":
+                            return mac
+    except Exception:
+        pass
     try:
         import uuid
         n = uuid.getnode()
@@ -1352,13 +1394,14 @@ class Hub:
         except OSError as e:
             log("Busca automática indisponível:", e)
             return
-        resp = json.dumps({"app": "RemotoGF", "nome": platform.node(), "porta": self.port,
-                           "versao": VERSION, "mac": mac_addr()}).encode()
+        def resp():
+            return json.dumps({"app": "RemotoGF", "nome": platform.node(), "porta": self.port,
+                               "versao": VERSION, "mac": mac_addr(), "tailscale_ip": tailscale_ip()}).encode()
         while True:
             try:
                 data, addr = sock.recvfrom(256)
                 if data.startswith(b"REMOTO_GF?"):
-                    sock.sendto(resp, addr)
+                    sock.sendto(resp(), addr)
             except Exception:
                 time.sleep(0.5)
 
@@ -1436,7 +1479,7 @@ class Hub:
         await self.send(ws, {
             "t": "hello", "pc": platform.node(), "versao": current_version(self.cfg), "admin": self.admin,
             "recursos": self.features(), "monitores": len(mons) or 1, "https_port": self.https_port,
-            "mac": mac_addr(),
+            "mac": mac_addr(), "porta": self.port, "lan_ip": lan_ip(), "tailscale_ip": tailscale_ip(),
             "apps": [a.get("nome", "?") for a in self.cfg.get("apps", [])],
         })
         if not self.inp.ok:
@@ -2297,6 +2340,8 @@ def run_gui(hub, start_hidden=False):
     status_lbl.pack(fill="x")
     pw_lbl = tk.Label(box, font=(F, 9), bg=CARD, fg=MUTED, anchor="w")
     pw_lbl.pack(fill="x", pady=(3, 0))
+    ts_lbl = tk.Label(box, font=(F, 9), bg=CARD, fg=MUTED, anchor="w", justify="left")
+    ts_lbl.pack(fill="x", pady=(3, 0))
     admin_lbl = tk.Label(box, font=(F, 9), bg=CARD, fg=MUTED, anchor="w",
                          text="Rodando como administrador" if hub.admin else "Modo normal (sem administrador)")
     admin_lbl.pack(fill="x", pady=(2, 0))
@@ -2345,7 +2390,9 @@ def run_gui(hub, start_hidden=False):
         set_password(hub.cfg, nova)
         hub.dirty = True
         if nova.strip():
-            messagebox.showinfo(APP_NAME, f"Senha fixa salva!\n\nPara acessar fora de casa, redirecione a porta TCP {hub.port} no seu roteador para o IP {lan_ip()}.")
+            messagebox.showinfo(APP_NAME, "Senha fixa salva!\n\nPara acessar fora de casa (dados móveis), instale o Tailscale "
+                                "neste PC e no celular, com a mesma conta. O app aprende o endereço sozinho "
+                                "na próxima vez que conectar em casa. Não precisa abrir porta no roteador.")
         else:
             messagebox.showinfo(APP_NAME, "Senha fixa removida. O acesso agora usa apenas o PIN temporário.")
 
@@ -2499,6 +2546,11 @@ def run_gui(hub, start_hidden=False):
             pw_lbl.configure(text=f"🔑 Senha fixa ativa · Porta TCP {hub.port} (IP local {lan_ip()})", fg="#4fd38a")
         else:
             pw_lbl.configure(text=f"🔓 Sem senha fixa (use '🔑 Senha fixa' para acesso externo na porta {hub.port})", fg=MUTED)
+        ts = tailscale_ip()
+        if ts:
+            ts_lbl.configure(text=f"🌐 Fora de casa (Tailscale): {ts}:{hub.port}", fg="#4fd38a")
+        else:
+            ts_lbl.configure(text="🌐 Fora de casa: instale e ligue o Tailscale neste PC e no celular", fg=MUTED)
 
     def quit_all():
         try:
@@ -2583,6 +2635,13 @@ def run_gui(hub, start_hidden=False):
 
     root.protocol("WM_DELETE_WINDOW", on_close)
     redraw()
+
+    def refresh_net():
+        # o Tailscale pode ligar ou desligar depois que o Remoto GF abriu
+        hub.dirty = True
+        root.after(15000, refresh_net)
+
+    root.after(15000, refresh_net)
     root.after(2500, lambda: verificar_atualizacao(False))
 
     def checagem_periodica():
