@@ -8,9 +8,25 @@ on:
 permissions:
   contents: write
 
+# Varias mudancas enviadas em sequencia viram UMA versao so: quando chega um envio novo,
+# o build anterior e cancelado e so o ultimo publica a release. Assim o app pula direto
+# para a versao final em vez de atualizar passo a passo.
+concurrency:
+  group: gerar-apps-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  aguardar:
+    name: Aguardar outros envios
+    runs-on: ubuntu-latest
+    steps:
+      - name: Espera 2 minutos (se chegar outro envio, este build e cancelado)
+        if: github.event_name == 'push'
+        run: sleep 120
+
   android:
     name: App do celular (APK)
+    needs: aguardar
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,6 +47,7 @@ jobs:
 
   windows:
     name: Instalador do PC (.exe)
+    needs: aguardar
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
