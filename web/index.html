@@ -32,6 +32,17 @@ input,textarea,select{font:inherit;color:var(--fg);background:var(--bg2);border:
 input:focus,textarea:focus{border-color:var(--acc)}
 svg.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:none}
 .hidden{display:none!important}
+/* downloads do PC (Baixador Drive GF e outros apps GF) */
+#dlBar{margin:0 14px 8px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:9px 12px;cursor:pointer}
+#dlBar .dlrow{display:flex;align-items:center;gap:8px;font-size:13px}
+#dlBar .dlrow b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#dlBar .dlrow span{color:var(--mut);font-size:12px;white-space:nowrap}
+#dlBar .dlbar{height:4px;border-radius:4px;background:var(--card2);margin-top:7px;overflow:hidden}
+#dlBar .dlbar i{display:block;height:100%;background:var(--acc);border-radius:4px;transition:width .6s}
+#dlBar.paused .dlbar i{background:var(--mut)}
+#dlBar .dlmore{display:none;color:var(--mut);font-size:12px;margin-top:7px;line-height:1.5}
+#dlBar.open .dlmore{display:block}
+#dlBar .dlitem+.dlitem{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
 
 /* topo */
 header{display:flex;align-items:center;gap:10px;padding:calc(10px + var(--safe-t)) 14px 10px;background:var(--bg)}
@@ -265,6 +276,7 @@ nav button.active{color:var(--acc);background:var(--accbg)}
   <button class="iconbtn" id="gearBtn" aria-label="Configurações"></button>
 </header>
 
+<div id="dlBar" class="hidden" aria-live="polite"></div>
 <main>
   <!-- TOUCHPAD -->
   <section class="panel" data-p="mouse">
@@ -702,6 +714,7 @@ function handle(m){
     case 'clip': $('#clip').value=m.text; lastSyncedClip=m.text; toast('Recebido do PC','Texto da área de transferência do PC.','ok'); break;
     case 'clip_sync': if(S.syncClip&&m.text&&m.text!==lastSyncedClip){ lastSyncedClip=m.text; $('#clip').value=m.text; if(APP) try{NA.copy(m.text)}catch(e){} } break;
     case 'files': buildFiles(m.list||[], m.pasta); break;
+    case 'progress': renderProgress(m.itens||[]); break;
     case 'notify': toast(m.title,m.msg,m.level,m.actions,m.id,m.sticky);
       if(APP&&(document.hidden||m.level==='warn'||m.level==='error')) try{ NA.notify(m.title||'Remoto GF',m.msg||''); }catch(e){}
       break;
@@ -1212,6 +1225,52 @@ $('#clipType').onclick=()=>{ const v=$('#clip').value; if(v){ send({t:'type',tex
 $('#clipCopy').onclick=async()=>{ const ta=$('#clip'); if(APP){ NA.copy(ta.value); fb('Copiado no celular'); tick(); return; } try{ await navigator.clipboard.writeText(ta.value); }catch(e){ ta.select(); document.execCommand('copy'); } fb('Copiado no celular'); tick(); };
 
 /* ============================================================ arquivos entre PC e celular */
+/* ============================================================ downloads do PC */
+/* O Baixador Drive GF (e qualquer app que grave em %LOCALAPPDATA%\\GF\\progresso) manda o progresso pelo PC.
+   Aqui vira uma faixa no topo do app e, no app instalado, uma notificação com barra de progresso. */
+const dlSeen={};   // id -> último estado mostrado (para avisar só uma vez quando termina)
+const dlFmtT=s=>{ if(s==null||!isFinite(s)) return '?'; s=Math.round(s); if(s<60) return s+' s'; if(s<3600) return Math.round(s/60)+' min'; const h=Math.floor(s/3600); return `${h} h ${Math.round((s%3600)/60)} min`; };
+function dlLine(d){
+  const g=d.geral||{};
+  if(d.estado==='baixando') return `${(d.pct??0).toFixed(1)}% · ${fmtSize(d.vel||0)}/s · faltam ${dlFmtT(d.resta)}`;
+  if(d.estado==='pausado') return `Pausado em ${(d.pct??0).toFixed(1)}%`;
+  return d.msg||({concluido:'Concluído',parado:'Parado',erro:'Terminou com erro'}[d.estado]||d.estado||'');
+}
+function renderProgress(itens){
+  const bar=$('#dlBar'); const ativos=itens.filter(d=>d.estado==='baixando'||d.estado==='pausado');
+  const mostrar=ativos.length?ativos:itens;
+  if(!mostrar.length){ bar.classList.add('hidden'); }
+  else{
+    const d=mostrar[0], g=d.geral||{}, nome=(d.arquivo||d.app||'Download').split(/[\\/]/).pop();
+    const pct=d.estado==='baixando'||d.estado==='pausado'?(d.pct||0):(d.estado==='concluido'?100:(g.pct||0));
+    bar.classList.toggle('paused',d.estado!=='baixando');
+    bar.innerHTML='';
+    bar.append(h('div',{class:'dlrow'},h('span',{},d.estado==='baixando'?'⬇':(d.estado==='concluido'?'✓':'⏸')),h('b',{},nome),h('span',{},`${Math.round(pct)}%`)),
+      h('div',{class:'dlbar'},h('i',{style:`width:${Math.max(0,Math.min(100,pct))}%`})),
+      h('div',{class:'dlmore'},...mostrar.map(x=>{ const gx=x.geral||{};
+        return h('div',{class:'dlitem'},h('div',{},`${x.app||'App'}: ${dlLine(x)}`),
+          x.arquivo?h('div',{},x.arquivo):null,
+          x.total?h('div',{},`Arquivo: ${fmtSize(x.feito||0)} de ${fmtSize(x.total)}`):null,
+          gx.total?h('div',{},`Fila: ${(gx.pct||0).toFixed(1)}% · ${fmtSize(gx.feito||0)} de ${fmtSize(gx.total)} · arquivos ${gx.arquivos||'?'} · falta ~${dlFmtT(gx.resta)}`):null); })));
+    bar.classList.remove('hidden');
+  }
+  // notificação do Android
+  if(!APP||!NA.progress) return;
+  const vivos=new Set();
+  for(const d of itens){ vivos.add(d.id); const nome=(d.arquivo||'').split(/[\\/]/).pop()||d.app;
+    if(d.estado==='baixando'||d.estado==='pausado'){
+      const g=d.geral||{};
+      const extra=g.arquivos?` · fila ${g.arquivos}`:'';
+      try{ NA.progress(d.id,`${d.estado==='pausado'?'Pausado':'Baixando'}: ${nome}`,dlLine(d)+extra,Math.round(d.pct||0),d.estado==='pausado'); }catch(e){}
+    }else if(dlSeen[d.id]!==d.estado){
+      try{ NA.progressDone(d.id,`${d.app||'Download'}: ${({concluido:'concluído',parado:'parado',erro:'com erro'}[d.estado]||d.estado)}`,d.msg||''); }catch(e){}
+    }
+    dlSeen[d.id]=d.estado; }
+  for(const id of Object.keys(dlSeen)) if(!vivos.has(id)){ const was=dlSeen[id]; delete dlSeen[id];
+    if(was==='baixando'||was==='pausado'){ try{ NA.progressClear(id); }catch(e){} } }
+}
+$('#dlBar').onclick=()=>$('#dlBar').classList.toggle('open');
+
 function fmtSize(b){
   if(b<1024) return b+' B';
   if(b<1024*1024) return (b/1024).toFixed(1)+' KB';
