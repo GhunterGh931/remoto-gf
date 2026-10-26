@@ -43,7 +43,19 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
+
+import android.database.Cursor;
+import android.provider.OpenableColumns;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.util.ArrayList;
+import java.util.List;
 
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
@@ -74,10 +86,14 @@ public class MainActivity extends Activity implements SensorEventListener {
     private static final int REQ_PROJECTION = 7001;
     private static final int REQ_FILE_CHOOSER = 7002;
     private static final int REQ_CAM_PERM = 7003;
+    private static final int REQ_SPEECH = 7004;
     private String pendingHost, pendingToken, pendingName;
     private ValueCallback<Uri[]> fileCallback;
     private PermissionRequest pendingWebPerm;
     private BroadcastReceiver controlRx;
+    // "Compartilhar > Enviar ao PC": o que outro app mandou para cá
+    private final List<Uri> sharedUris = new ArrayList<>();
+    private volatile String pendingShareJson = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -146,6 +162,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         });
         web.addJavascriptInterface(new Bridge(), "Android");
         web.loadUrl("file:///android_asset/index.html");
+        handleShare(getIntent());
 
         sensors = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         if (sensors != null) gyro = sensors.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
@@ -179,8 +196,66 @@ public class MainActivity extends Activity implements SensorEventListener {
     }
 
     @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleShare(intent);
+    }
+
+    /** Recebe arquivos, links ou texto do menu Compartilhar do Android. */
+    @SuppressWarnings("deprecation")
+    private void handleShare(Intent intent) {
+        if (intent == null) return;
+        String action = intent.getAction();
+        if (!Intent.ACTION_SEND.equals(action) && !Intent.ACTION_SEND_MULTIPLE.equals(action)) return;
+        sharedUris.clear();
+        try {
+            if (Intent.ACTION_SEND_MULTIPLE.equals(action)) {
+                ArrayList<Uri> list = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+                if (list != null) sharedUris.addAll(list);
+            } else {
+                Uri u = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+                if (u != null) sharedUris.add(u);
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            JSONObject j = new JSONObject();
+            CharSequence txt = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
+            j.put("text", txt != null ? txt.toString() : "");
+            JSONArray names = new JSONArray();
+            for (Uri u : sharedUris) names.put(displayName(u));
+            j.put("files", names);
+            pendingShareJson = j.toString();
+        } catch (Exception ignored) {
+        }
+        // não processa de novo ao girar a tela ou voltar ao app
+        intent.setAction(Intent.ACTION_MAIN);
+        js("window.onShared&&window.onShared()");
+    }
+
+    private String displayName(Uri u) {
+        String name = null;
+        try (Cursor c = getContentResolver().query(u, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (c != null && c.moveToFirst()) name = c.getString(0);
+        } catch (Exception ignored) {
+        }
+        if (name == null || name.trim().isEmpty()) {
+            name = u.getLastPathSegment();
+            if (name == null || name.trim().isEmpty()) name = "arquivo_" + System.currentTimeMillis();
+        }
+        return name.replaceAll("[\\\\/:*?\"<>|]", "_");
+    }
+
+    @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        if (req == REQ_SPEECH) {
+            ArrayList<String> r = (res == RESULT_OK && data != null)
+                    ? data.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS) : null;
+            if (r != null && !r.isEmpty()) js("window.onDictation&&window.onDictation(" + JSONObject.quote(r.get(0)) + ")");
+            return;
+        }
         if (req == REQ_FILE_CHOOSER) {
             if (fileCallback == null) return;
             Uri[] results = null;
@@ -472,9 +547,30 @@ public class MainActivity extends Activity implements SensorEventListener {
                     .setOnlyAlertOnce(true)
                     .setShowWhen(false)
                     .setContentIntent(openApp());
+            Notification n = b.build();
+            // serviço fixo: segura o app vivo em segundo plano enquanto o PC baixa/renderiza
+            if (!ProgressService.running) {
+                try {
+                    Intent si = new Intent(MainActivity.this, ProgressService.class)
+                            .putExtra("id", dlId(id)).putExtra("notif", n);
+                    if (Build.VERSION.SDK_INT >= 26) startForegroundService(si);
+                    else startService(si);
+                } catch (Exception ignored) {
+                    // Android não deixou iniciar (app já estava em segundo plano): fica só a notificação
+                }
+            }
             try {
-                nm.notify(dlId(id), b.build());
+                nm.notify(dlId(id), n);
             } catch (SecurityException ignored) {
+            }
+        }
+
+        private void stopProgressService(int nid, boolean keep) {
+            if (!ProgressService.running || ProgressService.currentId != nid) return;
+            try {
+                startService(new Intent(MainActivity.this, ProgressService.class)
+                        .setAction(keep ? ProgressService.ACTION_STOP_DETACH : ProgressService.ACTION_STOP_REMOVE));
+            } catch (Exception ignored) {
             }
         }
 
@@ -483,6 +579,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         public void progressDone(String id, String title, String text) {
             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm == null) return;
+            stopProgressService(dlId(id), true);
             nm.cancel(dlId(id));
             Notification.Builder b = Build.VERSION.SDK_INT >= 26
                     ? new Notification.Builder(MainActivity.this, CHANNEL)
@@ -501,6 +598,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
         @JavascriptInterface
         public void progressClear(String id) {
+            stopProgressService(dlId(id), false);
             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm != null) nm.cancel(dlId(id));
         }
@@ -548,6 +646,81 @@ public class MainActivity extends Activity implements SensorEventListener {
                     if (lock != null && lock.isHeld()) lock.release();
                     js("window.onDiscoverDone&&window.onDiscoverDone()");
                 }
+            }).start();
+        }
+
+        /** Abre o reconhecimento de voz do Android; o texto volta em window.onDictation. */
+        @JavascriptInterface
+        public void dictate() {
+            ui.post(() -> {
+                Intent i = new Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+                i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                        android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+                i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, "pt-BR");
+                i.putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Fale o que digitar no PC");
+                try {
+                    startActivityForResult(i, REQ_SPEECH);
+                } catch (ActivityNotFoundException e) {
+                    js("window.onDictationError&&window.onDictationError('Este celular não tem reconhecimento de voz (app Google).')");
+                }
+            });
+        }
+
+        // ---- Compartilhar > Enviar ao PC
+
+        /** Devolve (uma vez) o que foi compartilhado: {"text": "...", "files": ["nome", ...]} */
+        @JavascriptInterface
+        public String takeShared() {
+            String s = pendingShareJson;
+            pendingShareJson = null;
+            return s == null ? "" : s;
+        }
+
+        /** Envia ao PC os arquivos compartilhados (mesma rota /api/upload da aba Arquivos). */
+        @JavascriptInterface
+        public void uploadShared(final String base, final String token, final String dev) {
+            final List<Uri> uris = new ArrayList<>(sharedUris);
+            sharedUris.clear();
+            new Thread(() -> {
+                int ok = 0;
+                String err = "";
+                for (int i = 0; i < uris.size(); i++) {
+                    Uri u = uris.get(i);
+                    String name = displayName(u);
+                    js("window.onShareProgress&&window.onShareProgress(" + i + "," + uris.size() + "," + JSONObject.quote(name) + ")");
+                    HttpURLConnection c = null;
+                    try {
+                        String b = "----gfshare" + System.currentTimeMillis();
+                        URL url = new URL(base + "/api/upload?t=" + URLEncoder.encode(token, "UTF-8")
+                                + "&n=" + URLEncoder.encode(dev, "UTF-8"));
+                        c = (HttpURLConnection) url.openConnection();
+                        c.setDoOutput(true);
+                        c.setRequestMethod("POST");
+                        c.setConnectTimeout(8000);
+                        c.setReadTimeout(120000);
+                        c.setChunkedStreamingMode(256 * 1024);
+                        c.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + b);
+                        try (OutputStream out = c.getOutputStream();
+                             InputStream in = getContentResolver().openInputStream(u)) {
+                            if (in == null) throw new Exception("não consegui abrir " + name);
+                            out.write(("--" + b + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\""
+                                    + name.replace("\"", "_") + "\"\r\nContent-Type: application/octet-stream\r\n\r\n")
+                                    .getBytes("UTF-8"));
+                            byte[] buf = new byte[256 * 1024];
+                            int n;
+                            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                            out.write(("\r\n--" + b + "--\r\n").getBytes("UTF-8"));
+                        }
+                        int code = c.getResponseCode();
+                        if (code >= 200 && code < 300) ok++;
+                        else err = "o PC respondeu " + code;
+                    } catch (Exception e) {
+                        err = String.valueOf(e.getMessage());
+                    } finally {
+                        if (c != null) c.disconnect();
+                    }
+                }
+                js("window.onShareDone&&window.onShareDone(" + ok + "," + uris.size() + "," + JSONObject.quote(err) + ")");
             }).start();
         }
 
