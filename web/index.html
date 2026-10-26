@@ -407,7 +407,7 @@ nav button.active{color:var(--acc);background:var(--accbg)}
     <div id="scrBox"><div id="scrView"><img id="scr" alt="" draggable="false"><div id="scrMsg">Carregando a tela do PC...</div></div><div id="scrSide"><div class="spad" id="spad"><span>Touchpad</span></div><div class="sbtns"><button id="sLeft" data-b="left">Esquerdo</button><button id="sRight" data-b="right">Direito</button></div><div class="sbtns"><button id="sHide">Só tela</button><button id="sExit">Sair</button></div></div><button id="fsBtn" aria-label="Tela cheia com mouse"></button></div>
     <div class="row" style="margin-top:10px">
       <select id="scrMon"></select>
-      <select id="scrFps"><option value="1">1 quadro/s</option><option value="3" selected>3 quadros/s</option><option value="6">6 quadros/s</option><option value="10">10 quadros/s</option></select>
+      <select id="scrFps"><option value="3">3 quadros/s</option><option value="10">10 quadros/s</option><option value="15">15 quadros/s</option><option value="24" selected>24 quadros/s</option><option value="30">30 quadros/s</option></select>
       <select id="scrQ"><option value="0">Leve</option><option value="1" selected>Normal</option><option value="2">Nítida</option></select>
     </div>
     <p class="hint">Toque na imagem para clicar naquele ponto. Segure para o botão direito. O botão no canto abre a tela deitada com a tela do PC (70%) e um touchpad (30%).</p>
@@ -1151,7 +1151,25 @@ function buildLaunch(apps){ const g=$('#launch'); g.innerHTML='';
 /* ============================================================ tela ao vivo */
 let scrGen=0, scrUrl=null;
 const Qs=[[720,45],[1100,60],[1600,75]];
-function startScreen(){ const gen=++scrGen; $('#scrMsg').textContent='Carregando a tela do PC...'; $('#scrMsg').classList.remove('hidden');
+/* Modo principal: fluxo contínuo (MJPEG em /api/stream). O PC manda os quadros sem esperar
+   o celular pedir cada um, então chega a 24-30 quadros/s. Se o PC for de uma versão antiga ou
+   o aparelho não mostrar o fluxo, cai sozinho no modo antigo (um pedido por quadro). */
+let scrPoll=false, scrStreamT=0;
+const scrQs=()=>{ const [w,q]=Qs[+$('#scrQ').value]; return `t=${encodeURIComponent(token)}&m=${$('#scrMon').value||1}&w=${w}&q=${q}`; };
+function startScreen(){
+  if(!scrPoll) return startStream();
+  startPolling();
+}
+function startStream(){ const gen=++scrGen, img=$('#scr'); clearTimeout(scrStreamT);
+  $('#scrMsg').textContent='Carregando a tela do PC...'; $('#scrMsg').classList.remove('hidden');
+  let ok=false;
+  const fallback=()=>{ if(gen!==scrGen||ok) return; scrPoll=true; img.onload=img.onerror=null; img.removeAttribute('src'); startPolling(); };
+  img.onload=()=>{ if(gen!==scrGen) return; ok=true; clearTimeout(scrStreamT); $('#scrMsg').classList.add('hidden'); };
+  img.onerror=fallback;
+  scrStreamT=setTimeout(fallback,7000);
+  img.src=`${base()}/api/stream?${scrQs()}&fps=${+$('#scrFps').value||24}&_=${Date.now()}`;
+}
+function startPolling(){ const gen=++scrGen; $('#scrMsg').textContent='Carregando a tela do PC...'; $('#scrMsg').classList.remove('hidden');
   (async function loop(){
     if(gen!==scrGen) return; const t0=performance.now();
     const [w,q]=Qs[+$('#scrQ').value]; const fps=+$('#scrFps').value;
@@ -1162,7 +1180,10 @@ function startScreen(){ const gen=++scrGen; $('#scrMsg').textContent='Carregando
     }catch(e){}
     setTimeout(loop,Math.max(30,1000/fps-(performance.now()-t0)));
   })(); }
-function stopScreen(){ scrGen++; }
+function stopScreen(){ scrGen++; clearTimeout(scrStreamT); const img=$('#scr');
+  if(!scrPoll&&img.getAttribute('src')){ img.onload=img.onerror=null; img.removeAttribute('src'); } } // fecha o fluxo no PC
+// app em segundo plano: para o fluxo (economiza dados e bateria) e volta ao reabrir
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) stopScreen(); else if(cur==='tela') startScreen(); });
 /* Toque na imagem = clique naquele ponto; segurar = botão direito.
    Antes usava pointerdown/pointerup: no Android o sistema às vezes cancela o toque na imagem
    (pointercancel) e o pointerup nunca chega, então o cronômetro do botão direito disparava
@@ -1206,7 +1227,8 @@ $('#fsBtn').onclick=()=>{ const b=$('#scrBox'); const on=b.classList.contains('a
   setScrFull(!on); };
 $('#sHide').onclick=()=>$('#scrBox').classList.remove('split');
 $('#sExit').onclick=()=>setScrFull(false);
-$$('#scrMon,#scrFps,#scrQ').forEach(s=>s.onchange=()=>{ if(cur==='tela') startScreen(); });
+(()=>{ const f=LS.get('scrFps',null), q=LS.get('scrQ',null); if(f&&$(`#scrFps option[value="${f}"]`)) $('#scrFps').value=f; if(q!=null) $('#scrQ').value=q; })();
+$$('#scrMon,#scrFps,#scrQ').forEach(s=>s.onchange=()=>{ LS.set('scrFps',$('#scrFps').value); LS.set('scrQ',$('#scrQ').value); if(cur==='tela') startScreen(); });
 
 /* ============================================================ energia e área de transferência */
 function setStats(m){ $('#stCpu').textContent=m.cpu!=null?Math.round(m.cpu)+'%':'--'; $('#stRam').textContent=m.ram!=null?Math.round(m.ram)+'%':'--';
