@@ -93,7 +93,8 @@ main{flex:1;position:relative;overflow:hidden}
 .mbtns{display:flex;gap:8px;height:64px}
 .mbtns button{flex:1;font-size:13px;color:var(--mut);border-radius:16px}
 .mbtns button.mid{flex:.45}
-.mbtns button.held{background:var(--accbg);color:var(--acc)}
+.mbtns button.held,#scrSide .sbtns button.held{background:var(--accbg);color:var(--acc)}
+.mbtns button,#scrSide .sbtns button{touch-action:none;user-select:none;-webkit-user-select:none}
 .padtools{display:flex;gap:8px}
 .padtools button{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;padding:10px}
 #padLive{position:absolute;opacity:0;pointer-events:none;height:1px;width:1px;bottom:0;left:0}
@@ -403,7 +404,7 @@ nav button.active{color:var(--acc);background:var(--accbg)}
 
   <!-- TELA -->
   <section class="panel" data-p="tela">
-    <div id="scrBox"><div id="scrView"><img id="scr" alt="" draggable="false"><div id="scrMsg">Carregando a tela do PC...</div></div><div id="scrSide"><div class="spad" id="spad"><span>Touchpad</span></div><div class="sbtns"><button id="sLeft">Esquerdo</button><button id="sRight">Direito</button></div><div class="sbtns"><button id="sHide">Só tela</button><button id="sExit">Sair</button></div></div><button id="fsBtn" aria-label="Tela cheia com mouse"></button></div>
+    <div id="scrBox"><div id="scrView"><img id="scr" alt="" draggable="false"><div id="scrMsg">Carregando a tela do PC...</div></div><div id="scrSide"><div class="spad" id="spad"><span>Touchpad</span></div><div class="sbtns"><button id="sLeft" data-b="left">Esquerdo</button><button id="sRight" data-b="right">Direito</button></div><div class="sbtns"><button id="sHide">Só tela</button><button id="sExit">Sair</button></div></div><button id="fsBtn" aria-label="Tela cheia com mouse"></button></div>
     <div class="row" style="margin-top:10px">
       <select id="scrMon"></select>
       <select id="scrFps"><option value="1">1 quadro/s</option><option value="3" selected>3 quadros/s</option><option value="6">6 quadros/s</option><option value="10">10 quadros/s</option></select>
@@ -787,10 +788,10 @@ const spread=ts=>ts.length<2?0:Math.hypot(ts[0].clientX-ts[1].clientX,ts[0].clie
 function bindPad(el){
 el.addEventListener('touchstart',e=>{
   e.preventDefault(); curPad=el; const hint=$('#padHint'); if(el===pad&&hint) hint.style.opacity=0;
-  const c=cen(e.touches), now=performance.now();
+  const T=e.targetTouches, c=cen(T), now=performance.now();
   if(G.n===0){
     Object.assign(G,{t0:now,moved:false,dist:0,max:0,lpFired:false,mode:null}); sm.x=sm.y=0;
-    const t=e.touches[0];
+    const t=T[0];
     if(S.dblDrag && now-G.lastTap<300 && Math.hypot(t.clientX-G.tapX,t.clientY-G.tapY)<45){
       G.mode='dd'; send({t:'md',b:'left'}); el.classList.add('drag');      // 2º toque: segura o botão
     }else if(S.longRight){
@@ -798,13 +799,13 @@ el.addEventListener('touchstart',e=>{
       G.lp=setTimeout(()=>{ if(!G.moved&&G.n===1&&!G.mode){ G.lpFired=true; click('right',t.clientX,t.clientY,'Clique direito'); tick(true);} },480);
     }
   }
-  G.n=e.touches.length; G.max=Math.max(G.max,G.n); G.lx=c.x; G.ly=c.y; G.lt=now;
+  G.n=T.length; G.max=Math.max(G.max,G.n); G.lx=c.x; G.ly=c.y; G.lt=now;
   if(G.n>1) clearTimeout(G.lp);
-  if(G.n===2){ G.d0=G.ld=spread(e.touches); if(G.mode!=='dd') G.mode=null; }
+  if(G.n===2){ G.d0=G.ld=spread(T); if(G.mode!=='dd') G.mode=null; }
 },{passive:false});
 el.addEventListener('touchmove',e=>{
   e.preventDefault();
-  const ts=e.touches, c=cen(ts), now=performance.now();
+  const ts=e.targetTouches, c=cen(ts), now=performance.now();
   if(ts.length!==G.n){ G.n=ts.length; G.lx=c.x; G.ly=c.y; G.lt=now; if(G.n===2) G.d0=G.ld=spread(ts); return; }
   const dx=c.x-G.lx, dy=c.y-G.ly, dt=now-G.lt; G.lx=c.x; G.ly=c.y; G.lt=now;
   G.dist+=Math.abs(dx)+Math.abs(dy);
@@ -824,8 +825,8 @@ el.addEventListener('touchmove',e=>{
   }
 },{passive:false});
 const padEnd=e=>{
-  e.preventDefault(); G.n=e.touches.length;
-  if(G.n>0){ const c=cen(e.touches); G.lx=c.x; G.ly=c.y; return; }
+  e.preventDefault(); G.n=e.targetTouches.length;
+  if(G.n>0){ const c=cen(e.targetTouches); G.lx=c.x; G.ly=c.y; return; }
   clearTimeout(G.lp); flush();
   const dur=performance.now()-G.t0, ch=e.changedTouches[0];
   if(G.mode==='dd'||G.mode==='drag3'){ send({t:'mu',b:'left'}); el.classList.remove('drag'); if(G.mode==='dd'&&!G.moved) fb('Clique duplo'); G.lastTap=0; G.mode=null; return; }
@@ -847,12 +848,20 @@ bindPad(pad);
   st.addEventListener('touchmove',e=>{e.preventDefault();const y=e.touches[0].clientY;scrollBy(0,(y-ly)*1.4);ly=y;},{passive:false});
 })();
 
-// botões físicos do mouse: segurar = manter pressionado
-$$('.mbtns button').forEach(b=>{
+// botões do mouse: segurar = manter pressionado. Dá para segurar com um dedo e mover no
+// touchpad com outro (clicar e arrastar). Usa eventos de toque: antes, com pointer events,
+// o Android cancelava o toque quando o dedo mexia um pouco e o botão soltava sozinho.
+$$('.mbtns button, #scrSide button[data-b]').forEach(b=>{
   const B=b.dataset.b; let down=false;
+  const press=()=>{ if(down) return; down=true; b.classList.add('held'); send({t:'md',b:B}); tick(); };
   const up=()=>{ if(!down) return; down=false; b.classList.remove('held'); if(!lockOn||B!=='left') send({t:'mu',b:B}); };
-  b.addEventListener('pointerdown',e=>{ e.preventDefault(); down=true; b.classList.add('held'); send({t:'md',b:B}); tick(); });
-  b.addEventListener('pointerup',up); b.addEventListener('pointercancel',up); b.addEventListener('pointerleave',up);
+  b.addEventListener('touchstart',e=>{ e.preventDefault(); press(); },{passive:false});
+  b.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});
+  b.addEventListener('touchend',e=>{ e.preventDefault(); if(!e.targetTouches.length) up(); },{passive:false});
+  b.addEventListener('touchcancel',e=>{ if(!e.targetTouches.length) up(); });
+  // mouse (navegador no computador)
+  b.addEventListener('mousedown',e=>{ e.preventDefault(); press(); });
+  b.addEventListener('mouseup',up); b.addEventListener('mouseleave',up);
   b.addEventListener('contextmenu',e=>e.preventDefault());
 });
 let lockOn=false;
@@ -1195,8 +1204,6 @@ $('#fsBtn').innerHTML=ic('full');
 $('#fsBtn').onclick=()=>{ const b=$('#scrBox'); const on=b.classList.contains('appfs');
   if(on&&!b.classList.contains('split')){ b.classList.add('split'); return; } // de "só tela" volta a mostrar o mouse
   setScrFull(!on); };
-$('#sLeft').onclick=()=>click('left',null,null,'Clique');
-$('#sRight').onclick=()=>click('right',null,null,'Clique direito');
 $('#sHide').onclick=()=>$('#scrBox').classList.remove('split');
 $('#sExit').onclick=()=>setScrFull(false);
 $$('#scrMon,#scrFps,#scrQ').forEach(s=>s.onchange=()=>{ if(cur==='tela') startScreen(); });
