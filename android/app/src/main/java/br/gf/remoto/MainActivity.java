@@ -60,6 +60,7 @@ import java.nio.charset.StandardCharsets;
 public class MainActivity extends Activity implements SensorEventListener {
 
     private static final String CHANNEL = "avisos";
+    private static final String CHANNEL_DL = "downloads";
     private static final int DISCOVERY_PORT = 8765;
 
     private WebView web;
@@ -155,6 +156,11 @@ public class MainActivity extends Activity implements SensorEventListener {
             ch.setDescription("Pedidos de autorização e avisos do Remoto GF");
             NotificationManager nm = getSystemService(NotificationManager.class);
             if (nm != null) nm.createNotificationChannel(ch);
+            // downloads em andamento: sem som, só a barra de progresso na notificação
+            NotificationChannel dl = new NotificationChannel(CHANNEL_DL, "Downloads no PC",
+                    NotificationManager.IMPORTANCE_LOW);
+            dl.setDescription("Progresso dos downloads do PC (Baixador Drive GF e outros apps GF)");
+            if (nm != null) nm.createNotificationChannel(dl);
         }
         if (Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
@@ -434,6 +440,69 @@ public class MainActivity extends Activity implements SensorEventListener {
                 nm.notify(notifId++, b.build());
             } catch (SecurityException ignored) {
             }
+        }
+
+        // ---- progresso dos downloads do PC (notificação com barra)
+
+        private int dlId(String id) {
+            return 5000 + ((id == null ? 0 : id.hashCode()) & 0xFFF);
+        }
+
+        private PendingIntent openApp() {
+            Intent open = new Intent(MainActivity.this, MainActivity.class);
+            open.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            return PendingIntent.getActivity(MainActivity.this, 1, open,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        }
+
+        /** Notificação fixa com barra de progresso (atualizada a cada segundo pelo PC). */
+        @JavascriptInterface
+        public void progress(String id, String title, String text, int pct, boolean paused) {
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            Notification.Builder b = Build.VERSION.SDK_INT >= 26
+                    ? new Notification.Builder(MainActivity.this, CHANNEL_DL)
+                    : new Notification.Builder(MainActivity.this);
+            b.setSmallIcon(paused ? android.R.drawable.ic_media_pause : android.R.drawable.stat_sys_download)
+                    .setContentTitle(title)
+                    .setContentText(text)
+                    .setStyle(new Notification.BigTextStyle().bigText(text))
+                    .setProgress(100, Math.max(0, Math.min(100, pct)), false)
+                    .setOngoing(true)
+                    .setOnlyAlertOnce(true)
+                    .setShowWhen(false)
+                    .setContentIntent(openApp());
+            try {
+                nm.notify(dlId(id), b.build());
+            } catch (SecurityException ignored) {
+            }
+        }
+
+        /** Troca a notificação de progresso por um aviso de concluído/parado/erro (com som). */
+        @JavascriptInterface
+        public void progressDone(String id, String title, String text) {
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            nm.cancel(dlId(id));
+            Notification.Builder b = Build.VERSION.SDK_INT >= 26
+                    ? new Notification.Builder(MainActivity.this, CHANNEL)
+                    : new Notification.Builder(MainActivity.this);
+            b.setSmallIcon(android.R.drawable.stat_sys_download_done)
+                    .setContentTitle(title)
+                    .setContentText(text)
+                    .setStyle(new Notification.BigTextStyle().bigText(text))
+                    .setAutoCancel(true)
+                    .setContentIntent(openApp());
+            try {
+                nm.notify(dlId(id), b.build());
+            } catch (SecurityException ignored) {
+            }
+        }
+
+        @JavascriptInterface
+        public void progressClear(String id) {
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.cancel(dlId(id));
         }
 
         /** Procura PCs com o Remoto GF aberto na mesma rede (resposta UDP). */
