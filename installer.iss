@@ -51,7 +51,13 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 ; libera o app no Firewall para o celular conseguir conectar (sem aquele aviso do Windows)
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Remoto GF"""; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""Remoto GF"" dir=in action=allow program=""{app}\RemotoGF.exe"" enable=yes profile=any"; Flags: runhidden
+; tarefa SYSTEM para desbloquear a tela de login do Windows (Winlogon) pelo celular mesmo sem UAC
+Filename: "{sys}\schtasks.exe"; Parameters: "/Create /F /TN ""RemotoGF-Unlock"" /TR ""\""{app}\RemotoGF.exe\"" --unlock-worker"" /SC ONCE /ST 00:00 /RU SYSTEM /RL HIGHEST"; Flags: runhidden
+; tarefa com privilégio máximo ao entrar no Windows para capturar e controlar até a tela de bloqueio
+Filename: "{sys}\schtasks.exe"; Parameters: "/Create /F /TN ""RemotoGF"" /TR ""\""{app}\RemotoGF.exe\"" --minimizado"" /SC ONLOGON /RL HIGHEST"; Tasks: autostart; Flags: runhidden
 Filename: "{app}\RemotoGF.exe"; Description: "Abrir o Remoto GF agora"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Remoto GF"""; Flags: runhidden; RunOnceId: "fw"
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN ""RemotoGF-Unlock"""; Flags: runhidden; RunOnceId: "tk_unlock"
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN ""RemotoGF"""; Flags: runhidden; RunOnceId: "tk_logon"

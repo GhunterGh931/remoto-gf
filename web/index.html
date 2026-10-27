@@ -369,6 +369,7 @@ nav button.active{color:var(--acc);background:var(--accbg)}
     <div class="card">
       <h3 id="liveLbl">Digite e aparece no PC na hora</h3>
       <button id="dictBtn" class="pri" style="width:100%;margin-bottom:8px">🎤 Falar e digitar no PC</button>
+      <button id="unlockKbBtn" style="width:100%;margin-bottom:8px;background:var(--card2)">🔓 Desbloquear tela do PC (PIN / Senha)</button>
       <input id="live" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="send" placeholder="Toque para digitar">
       <div class="mods" id="mods"></div>
       <div class="grid g4" style="margin-top:8px" id="keysRow"></div>
@@ -432,6 +433,7 @@ nav button.active{color:var(--acc);background:var(--accbg)}
     <div class="card"><h3>Saúde do PC</h3><div id="health"><div class="empty">Carregando...</div></div></div>
     <div class="card"><h3>Energia</h3><div class="grid g2">
       <button id="wolBtn" class="pri" style="grid-column:span 2">⚡ Ligar PC (Wake-on-LAN)</button>
+      <button id="unlockBtn" class="pri" style="grid-column:span 2;background:var(--ok);color:#0b141a">🔓 Desbloquear PC (Tela de Login)</button>
       <button data-power="lock">Bloquear</button><button data-power="monitor_off">Desligar a tela</button>
       <button data-power="sleep" data-ask="Colocar o PC para dormir?">Suspender</button><button data-power="restart" data-ask="Reiniciar o PC? Você ainda pode cancelar por 30 segundos.">Reiniciar</button>
       <button data-power="shutdown" data-ask="Desligar o PC? Você ainda pode cancelar por 30 segundos." class="danger">Desligar</button><button data-power="cancel">Cancelar desligar</button>
@@ -738,7 +740,7 @@ function toast(title,msg,level='info',actions=[],id=null,sticky=false){
   if(id) $$('.toast').forEach(t=>{ if(t.dataset.id===id) t.remove(); });
   const t=h('div',{class:'toast '+level,'data-id':id||''},h('b',{},title||''),msg?h('p',{},msg):null);
   const row=h('div',{class:'ta'});
-  for(const a of actions||[]) row.append(h('button',{onclick:()=>{if(a.send&&a.send.t==='files_get') show('arquivos'); else send(a.send);t.remove();}},a.label));
+  for(const a of actions||[]) row.append(h('button',{onclick:()=>{if(a.send&&a.send.t==='files_get') show('arquivos'); else if(a.send&&a.send.t==='unlock_prompt') promptUnlock(false); else if(a.send&&a.send.t==='unlock_change') promptUnlock(true); else send(a.send);t.remove();}},a.label));
   if(sticky) row.append(h('button',{onclick:()=>t.remove()},'Ok'));
   if(row.children.length) t.append(row);
   t.addEventListener('click',e=>{ if(e.target.tagName!=='BUTTON') t.remove(); });
@@ -1296,6 +1298,42 @@ async function triggerWol(){
 }
 $('#wolBtn').onclick=triggerWol;
 $('#pairWolBtn').onclick=triggerWol;
+
+function promptUnlock(forceAsk=false){
+  const saved=LS.get('winPin','');
+  if(saved&&!forceAsk){
+    send({t:'unlock',pin:saved});
+    tick(true);
+    toast('Desbloqueando o PC...','Acordando a tela e digitando seu PIN/senha no Windows.','info',[{label:'Trocar PIN/senha',send:{t:'unlock_change'}}],'unlock');
+    return;
+  }
+  const m=$('#modal');
+  $('#mTitle').textContent='🔓 Desbloquear PC';
+  $('#mMsg').textContent='Digite o PIN (Windows Hello) ou a senha de login do seu Windows. O Remoto GF vai acordar o monitor, subir a cortina de bloqueio e digitar para você.';
+  $('#mYes').textContent='Desbloquear';
+  $$('.xtra',m).forEach(e=>e.remove());
+  const inp=h('input',{type:'password',class:'xtra',placeholder:'PIN ou senha do Windows',value:saved||'',autocomplete:'off',style:'width:100%;margin:4px 0 8px;font-size:18px;letter-spacing:.06em'});
+  const chk=h('input',{type:'checkbox',checked:true,style:'width:18px;height:18px;accent-color:var(--acc)'});
+  const saveRow=h('label',{class:'xtra',style:'display:flex;align-items:center;gap:8px;font-size:13px;color:var(--mut);margin-bottom:12px;cursor:pointer'},chk,'Salvar neste celular para desbloquear com 1 toque');
+  const row=$('.row',m);
+  row.before(inp,saveRow);
+  m.classList.remove('hidden');
+  setTimeout(()=>inp.focus(),60);
+  const go=()=>{
+    const v=inp.value;
+    $$('.xtra',m).forEach(e=>e.remove());
+    m.classList.add('hidden');
+    if(chk.checked&&v) LS.set('winPin',v);
+    else if(!chk.checked) LS.set('winPin','');
+    send({t:'unlock',pin:v});
+    tick(true);
+  };
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); go(); } });
+  $('#mYes').onclick=go;
+  $('#mNo').onclick=()=>{ $$('.xtra',m).forEach(e=>e.remove()); m.classList.add('hidden'); };
+}
+$('#unlockBtn').onclick=()=>promptUnlock(false);
+$('#unlockKbBtn').onclick=()=>promptUnlock(false);
 $('#clipSend').onclick=()=>{ lastSyncedClip=$('#clip').value; send({t:'clip_set',text:$('#clip').value}); tick(); };
 $('#clipGet').onclick=()=>{ send({t:'clip_get'}); tick(); };
 $('#clipType').onclick=()=>{ const v=$('#clip').value; if(v){ send({t:'type',text:v}); fb('Digitando no PC'); tick(); } };
@@ -1513,6 +1551,8 @@ function renderS(){
       h('div',{class:'srow link',onclick:()=>{ location.href=`https://${location.hostname}:${hp}/#t=${encodeURIComponent(token||'')}`; }},
         h('div',{class:'st'},h('b',{},'Abrir em modo seguro (HTTPS)'),h('small',{},'Libera giroscópio e tela sempre ligada em todos os celulares. Na primeira vez o navegador avisa sobre o certificado: toque em Avançado e Continuar.')),h('span',{class:'chev'},'›')));
     body.append(sec('Este celular'),
+      h('div',{class:'srow link',onclick:()=>{ closeSettings(); promptUnlock(true); }},
+        h('div',{class:'st'},h('b',{},'🔓 PIN/senha para desbloquear o PC'),h('small',{},LS.get('winPin','')?'Salvo neste celular (desbloqueio com 1 toque)':'Toque para configurar seu PIN ou senha de login do Windows')),h('span',{class:'chev'},'›')),
       h('div',{class:'srow link',onclick:()=>checkAppUpdate(true)},
         h('div',{class:'st'},h('b',{},'🔄 Verificar atualização no GitHub'),h('small',{},`PC: v${hello.versao||'?'}`+(APP?` · App celular: v${NA.version()}`:' · Baixar APK mais recente'))),h('span',{class:'chev'},'›')),
       h('div',{class:'srow link',onclick:()=>ask('Desconectar este celular','Você vai precisar do PIN para conectar de novo.',()=>{ LS.set('token',null); token=null; try{ws.close()}catch(e){} closeSettings(); showPair(); })},

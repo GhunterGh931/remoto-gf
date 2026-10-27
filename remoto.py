@@ -388,6 +388,98 @@ if IS_WIN:
     WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     user32.EnumWindows.argtypes = [WNDENUMPROC, wintypes.LPARAM]
 
+    user32.OpenInputDesktop.restype = wintypes.HANDLE
+    user32.OpenInputDesktop.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    user32.OpenDesktopW.restype = wintypes.HANDLE
+    user32.OpenDesktopW.argtypes = [wintypes.LPWSTR, wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    user32.SetThreadDesktop.restype = wintypes.BOOL
+    user32.SetThreadDesktop.argtypes = [wintypes.HANDLE]
+    user32.CloseDesktop.restype = wintypes.BOOL
+    user32.CloseDesktop.argtypes = [wintypes.HANDLE]
+    user32.GetUserObjectInformationW.restype = wintypes.BOOL
+    user32.GetUserObjectInformationW.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p,
+                                                 wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+    user32.VkKeyScanW.restype = ctypes.c_short
+    user32.VkKeyScanW.argtypes = [wintypes.WCHAR]
+    user32.MapVirtualKeyW.restype = wintypes.UINT
+    user32.MapVirtualKeyW.argtypes = [wintypes.UINT, wintypes.UINT]
+    user32.SendInput.restype = wintypes.UINT
+    user32.SendInput.argtypes = [wintypes.UINT, ctypes.c_void_p, ctypes.c_int]
+
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel32.GetCurrentProcess.argtypes = []
+    kernel32.WTSGetActiveConsoleSessionId.restype = wintypes.DWORD
+    kernel32.WTSGetActiveConsoleSessionId.argtypes = []
+    kernel32.ProcessIdToSessionId.restype = wintypes.BOOL
+    kernel32.ProcessIdToSessionId.argtypes = [wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+
+    class LUID(ctypes.Structure):
+        _fields_ = [("LowPart", wintypes.DWORD), ("HighPart", wintypes.LONG)]
+
+    class LUID_AND_ATTRIBUTES(ctypes.Structure):
+        _fields_ = [("Luid", LUID), ("Attributes", wintypes.DWORD)]
+
+    class TOKEN_PRIVILEGES(ctypes.Structure):
+        _fields_ = [("PrivilegeCount", wintypes.DWORD), ("Privileges", LUID_AND_ATTRIBUTES * 1)]
+
+    class STARTUPINFOW(ctypes.Structure):
+        _fields_ = [
+            ("cb", wintypes.DWORD), ("lpReserved", wintypes.LPWSTR), ("lpDesktop", wintypes.LPWSTR),
+            ("lpTitle", wintypes.LPWSTR), ("dwX", wintypes.DWORD), ("dwY", wintypes.DWORD),
+            ("dwXSize", wintypes.DWORD), ("dwYSize", wintypes.DWORD), ("dwXCountChars", wintypes.DWORD),
+            ("dwYCountChars", wintypes.DWORD), ("dwFillAttribute", wintypes.DWORD), ("dwFlags", wintypes.DWORD),
+            ("wShowWindow", wintypes.WORD), ("cbReserved2", wintypes.WORD),
+            ("lpReserved2", ctypes.POINTER(wintypes.BYTE)), ("hStdInput", wintypes.HANDLE),
+            ("hStdOutput", wintypes.HANDLE), ("hStdError", wintypes.HANDLE),
+        ]
+
+    class PROCESS_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("hProcess", wintypes.HANDLE), ("hThread", wintypes.HANDLE),
+            ("dwProcessId", wintypes.DWORD), ("dwThreadId", wintypes.DWORD),
+        ]
+
+    class MOUSEINPUT(ctypes.Structure):
+        _fields_ = [("dx", wintypes.LONG), ("dy", wintypes.LONG), ("mouseData", wintypes.DWORD),
+                    ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD), ("dwExtraInfo", ctypes.c_size_t)]
+
+    class KEYBDINPUT(ctypes.Structure):
+        _fields_ = [("wVk", wintypes.WORD), ("wScan", wintypes.WORD), ("dwFlags", wintypes.DWORD),
+                    ("time", wintypes.DWORD), ("dwExtraInfo", ctypes.c_size_t)]
+
+    class _INPUT_U(ctypes.Union):
+        _fields_ = [("mi", MOUSEINPUT), ("ki", KEYBDINPUT)]
+
+    class WIN_INPUT(ctypes.Structure):
+        _fields_ = [("type", wintypes.DWORD), ("u", _INPUT_U)]
+
+    advapi32.LookupPrivilegeValueW.restype = wintypes.BOOL
+    advapi32.LookupPrivilegeValueW.argtypes = [wintypes.LPWSTR, wintypes.LPWSTR, ctypes.POINTER(LUID)]
+    advapi32.AdjustTokenPrivileges.restype = wintypes.BOOL
+    advapi32.AdjustTokenPrivileges.argtypes = [wintypes.HANDLE, wintypes.BOOL, ctypes.POINTER(TOKEN_PRIVILEGES),
+                                               wintypes.DWORD, ctypes.c_void_p, ctypes.c_void_p]
+    advapi32.DuplicateTokenEx.restype = wintypes.BOOL
+    advapi32.DuplicateTokenEx.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.c_void_p,
+                                          ctypes.c_int, ctypes.c_int, ctypes.POINTER(wintypes.HANDLE)]
+    advapi32.ImpersonateLoggedOnUser.restype = wintypes.BOOL
+    advapi32.ImpersonateLoggedOnUser.argtypes = [wintypes.HANDLE]
+    advapi32.RevertToSelf.restype = wintypes.BOOL
+    advapi32.RevertToSelf.argtypes = []
+    advapi32.CreateProcessWithTokenW.restype = wintypes.BOOL
+    advapi32.CreateProcessWithTokenW.argtypes = [
+        wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, wintypes.LPWSTR,
+        wintypes.DWORD, ctypes.c_void_p, wintypes.LPWSTR,
+        ctypes.POINTER(STARTUPINFOW), ctypes.POINTER(PROCESS_INFORMATION),
+    ]
+    advapi32.CreateProcessAsUserW.restype = wintypes.BOOL
+    advapi32.CreateProcessAsUserW.argtypes = [
+        wintypes.HANDLE, wintypes.LPWSTR, wintypes.LPWSTR, ctypes.c_void_p,
+        ctypes.c_void_p, wintypes.BOOL, wintypes.DWORD, ctypes.c_void_p,
+        wintypes.LPWSTR, ctypes.POINTER(STARTUPINFOW), ctypes.POINTER(PROCESS_INFORMATION),
+    ]
+
 
 def is_admin() -> bool:
     if not IS_WIN:
@@ -443,6 +535,277 @@ def process_elevated(pid: int) -> bool:
         return bool(elev.value) if ok else False
     finally:
         kernel32.CloseHandle(h)
+
+
+def _enable_privileges(*names):
+    if not IS_WIN:
+        return
+    tok = wintypes.HANDLE()
+    if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x0020 | 0x0008, ctypes.byref(tok)):
+        return
+    try:
+        for name in names:
+            luid = LUID()
+            if advapi32.LookupPrivilegeValueW(None, name, ctypes.byref(luid)):
+                tp = TOKEN_PRIVILEGES()
+                tp.PrivilegeCount = 1
+                tp.Privileges[0].Luid = luid
+                tp.Privileges[0].Attributes = 0x00000002  # SE_PRIVILEGE_ENABLED
+                advapi32.AdjustTokenPrivileges(tok, False, ctypes.byref(tp), ctypes.sizeof(tp), None, None)
+    finally:
+        kernel32.CloseHandle(tok)
+
+
+def _get_winlogon_token(primary=False):
+    """Obtém o token SYSTEM do winlogon.exe da sessão ativa do console para acessar a tela de bloqueio (winsta0\\Winlogon)."""
+    if not IS_WIN:
+        return None
+    _enable_privileges("SeDebugPrivilege", "SeImpersonatePrivilege",
+                       "SeAssignPrimaryTokenPrivilege", "SeIncreaseQuotaPrivilege", "SeTcbPrivilege")
+    sess_id = kernel32.WTSGetActiveConsoleSessionId()
+    pids = []
+    try:
+        import psutil
+        for p in psutil.process_iter(["name", "pid"]):
+            if (p.info.get("name") or "").lower() == "winlogon.exe":
+                pids.append(p.info["pid"])
+    except Exception:
+        pass
+    for pid in pids:
+        psess = wintypes.DWORD()
+        if kernel32.ProcessIdToSessionId(pid, ctypes.byref(psess)) and psess.value != sess_id and len(pids) > 1:
+            continue
+        hproc = kernel32.OpenProcess(0x1000, False, pid) or kernel32.OpenProcess(0x0400, False, pid)
+        if not hproc:
+            continue
+        try:
+            htok = wintypes.HANDLE()
+            if (advapi32.OpenProcessToken(hproc, 0x000F, ctypes.byref(htok))
+                    or advapi32.OpenProcessToken(hproc, 0x000E, ctypes.byref(htok))
+                    or advapi32.OpenProcessToken(hproc, 0x0006, ctypes.byref(htok))):
+                try:
+                    hdup = wintypes.HANDLE()
+                    tok_type = 1 if primary else 2  # 1 = TokenPrimary, 2 = TokenImpersonation
+                    if advapi32.DuplicateTokenEx(htok, 0x02000000, None, 2, tok_type, ctypes.byref(hdup)):
+                        return hdup
+                finally:
+                    kernel32.CloseHandle(htok)
+        finally:
+            kernel32.CloseHandle(hproc)
+    return None
+
+
+def _active_desktop_name() -> str:
+    if not IS_WIN:
+        return "Default"
+    h = user32.OpenInputDesktop(0, False, 0x0100)
+    if not h:
+        return "Winlogon"
+    try:
+        buf = ctypes.create_unicode_buffer(128)
+        if user32.GetUserObjectInformationW(h, 2, buf, 256, None) and buf.value:
+            return buf.value
+        return "Default"
+    finally:
+        user32.CloseDesktop(h)
+
+
+def _sync_thread_desktop() -> str:
+    """Conecta a thread atual ao desktop ativo (Default ou Winlogon na tela de bloqueio).
+    Retorna o nome do desktop ativo."""
+    if not IS_WIN:
+        return "Default"
+    try:
+        advapi32.RevertToSelf()
+    except Exception:
+        pass
+    hdesk = user32.OpenInputDesktop(0, False, 0x10000000)
+    name = "Default"
+    if hdesk:
+        buf = ctypes.create_unicode_buffer(128)
+        if user32.GetUserObjectInformationW(hdesk, 2, buf, 256, None) and buf.value:
+            name = buf.value
+    if not hdesk or name.lower() == "winlogon":
+        if hdesk:
+            user32.CloseDesktop(hdesk)
+            hdesk = None
+        himp = _get_winlogon_token(primary=False)
+        if himp:
+            advapi32.ImpersonateLoggedOnUser(himp)
+            kernel32.CloseHandle(himp)
+            hdesk = user32.OpenDesktopW("Winlogon", 0, False, 0x10000000) or user32.OpenInputDesktop(0, False, 0x10000000)
+            name = "Winlogon"
+    if hdesk:
+        user32.SetThreadDesktop(hdesk)
+        user32.CloseDesktop(hdesk)
+    return name
+
+
+def _send_vk(vk: int, up: bool = False):
+    scan = user32.MapVirtualKeyW(vk, 0)
+    inp = WIN_INPUT()
+    inp.type = 1  # INPUT_KEYBOARD
+    inp.u.ki.wVk = vk
+    inp.u.ki.wScan = scan
+    inp.u.ki.dwFlags = 0x0002 if up else 0
+    user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(WIN_INPUT))
+
+
+def _tap_vk(vk: int, hold: float = 0.015):
+    _send_vk(vk, False)
+    time.sleep(hold)
+    _send_vk(vk, True)
+
+
+def _send_unicode_char(ch: str):
+    code = ord(ch)
+    for flags in (0x0004, 0x0004 | 0x0002):  # KEYEVENTF_UNICODE, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP
+        inp = WIN_INPUT()
+        inp.type = 1
+        inp.u.ki.wVk = 0
+        inp.u.ki.wScan = code
+        inp.u.ki.dwFlags = flags
+        user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(WIN_INPUT))
+        time.sleep(0.01)
+
+
+def _type_on_lockscreen(text: str):
+    """Digita cada caractere usando VirtualKey+ScanCode para dígitos/letras (exigido pelo PIN do Windows Hello)
+    e Unicode para caracteres especiais."""
+    for ch in text:
+        if "0" <= ch <= "9":
+            _tap_vk(ord(ch), 0.02)
+        else:
+            res = user32.VkKeyScanW(ch)
+            if res != -1 and (res & 0xFF00) in (0, 0x0100):
+                vk = res & 0xFF
+                shift = bool(res & 0x0100)
+                if shift:
+                    _send_vk(0x10, False)  # VK_SHIFT
+                    time.sleep(0.01)
+                _tap_vk(vk, 0.02)
+                if shift:
+                    time.sleep(0.01)
+                    _send_vk(0x10, True)
+            else:
+                _send_unicode_char(ch)
+        time.sleep(0.045)
+
+
+def _unlock_sequence(pin: str):
+    """Acorda o monitor, levanta a cortina da tela de bloqueio do Windows, limpa o campo e digita o PIN/senha."""
+    if not IS_WIN:
+        return
+    _sync_thread_desktop()
+    # 1. Acordar monitor e mover o mouse
+    try:
+        user32.PostMessageW(0xFFFF, 0x0112, 0xF170, -1)
+    except Exception:
+        pass
+    m = WIN_INPUT()
+    m.type = 0  # INPUT_MOUSE
+    m.u.mi.dx = 8
+    m.u.mi.dy = -8
+    m.u.mi.dwFlags = 0x0001  # MOUSEEVENTF_MOVE
+    user32.SendInput(1, ctypes.byref(m), ctypes.sizeof(WIN_INPUT))
+    time.sleep(0.15)
+    # 2. Subir a cortina do relógio (ou fechar botão OK de erro anterior) com Space
+    _tap_vk(0x20, 0.03)  # VK_SPACE
+    time.sleep(0.75)
+    _sync_thread_desktop()
+    if not pin:
+        return
+    # 3. Limpar qualquer caractere que tenha entrado no campo (Ctrl+A -> Backspace + vários Backspaces)
+    _send_vk(0x11, False)  # VK_CONTROL
+    time.sleep(0.01)
+    _tap_vk(0x41, 0.02)    # 'A'
+    _send_vk(0x11, True)
+    time.sleep(0.02)
+    for _ in range(10):
+        _tap_vk(0x08, 0.01)  # VK_BACK
+    time.sleep(0.12)
+    # 4. Digitar o PIN ou senha e confirmar com Enter
+    _type_on_lockscreen(pin)
+    time.sleep(0.12)
+    _tap_vk(0x0D, 0.03)  # VK_RETURN
+
+
+def unlock_windows_pc(pin: str, win_helper=None) -> tuple[bool, str]:
+    """Desbloqueia a tela de bloqueio do Windows (winsta0\\Winlogon) digitando o PIN ou senha."""
+    if not IS_WIN:
+        return False, "Disponível só no Windows."
+    pin = (pin or "").strip()
+    tmp = config_dir() / ".unlock.tmp"
+    try:
+        tmp.write_text(pin, encoding="utf-8")
+    except Exception:
+        pass
+    spawned = False
+    # 1. Se for Administrador, lança o worker como SYSTEM (Integrity Level System) direto em winsta0\Winlogon
+    if is_admin():
+        hpri = _get_winlogon_token(primary=True)
+        if hpri:
+            try:
+                si = STARTUPINFOW()
+                si.cb = ctypes.sizeof(STARTUPINFOW)
+                si.lpDesktop = "winsta0\\Winlogon"
+                si.dwFlags = 1  # STARTF_USESHOWWINDOW
+                si.wShowWindow = 0  # SW_HIDE
+                pi = PROCESS_INFORMATION()
+                if FROZEN:
+                    cmd_str = f'"{sys.executable}" --unlock-worker "{tmp}"'
+                else:
+                    pyw = Path(sys.executable).with_name("pythonw.exe")
+                    exe = pyw if pyw.exists() else Path(sys.executable)
+                    cmd_str = f'"{exe}" "{Path(__file__).resolve()}" --unlock-worker "{tmp}"'
+                cmd_buf = ctypes.create_unicode_buffer(cmd_str)
+                ok = advapi32.CreateProcessAsUserW(
+                    hpri, None, cmd_buf, None, None, False,
+                    0x08000000, None, str(resource_dir()), ctypes.byref(si), ctypes.byref(pi)
+                )
+                if not ok:
+                    cmd_buf = ctypes.create_unicode_buffer(cmd_str)
+                    ok = advapi32.CreateProcessWithTokenW(
+                        hpri, 0, None, cmd_buf, 0x08000000, None,
+                        str(resource_dir()), ctypes.byref(si), ctypes.byref(pi)
+                    )
+                if ok:
+                    spawned = True
+                    kernel32.WaitForSingleObject(pi.hProcess, 6000)
+                    kernel32.CloseHandle(pi.hProcess)
+                    kernel32.CloseHandle(pi.hThread)
+            except Exception as e:
+                log("unlock worker:", e)
+            finally:
+                kernel32.CloseHandle(hpri)
+    else:
+        # 2. Se não estiver como admin, tenta acionar a tarefa agendada SYSTEM criada pelo instalador/admin
+        try:
+            pub_tmp = Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / "RemotoGF" / "unlock.tmp"
+            pub_tmp.parent.mkdir(parents=True, exist_ok=True)
+            pub_tmp.write_text(pin, encoding="utf-8")
+            r = subprocess.run(["schtasks", "/Run", "/TN", "RemotoGF-Unlock"],
+                               capture_output=True, timeout=4, creationflags=0x08000000)
+            if r.returncode == 0:
+                spawned = True
+                time.sleep(2.6)
+        except Exception:
+            pass
+    # 3. Fallback direto em thread dedicada (caso não tenha criado processo filho ou ainda esteja bloqueado)
+    still_locked = win_helper.locked_open() if win_helper else (_active_desktop_name().lower() == "winlogon")
+    if not spawned or still_locked:
+        t = threading.Thread(target=_unlock_sequence, args=(pin,), daemon=True)
+        t.start()
+        t.join(timeout=4.0)
+    try:
+        tmp.unlink(missing_ok=True)
+    except Exception:
+        pass
+    time.sleep(0.4)
+    if win_helper and win_helper.locked_open() and not is_admin() and not spawned:
+        return False, ("O Windows bloqueou o envio do PIN porque o Remoto GF não está rodando como Administrador. "
+                       "No PC, clique uma vez em 'Reabrir como admin' (depois ele já fica automático).")
+    return True, "Comando de desbloqueio enviado ao PC!"
 
 
 # ------------------------------------------------------------------ entrada (mouse e teclado)
@@ -1097,6 +1460,19 @@ class Windows:
             pass
         return False
 
+    def locked_open(self):
+        """True quando o PC está na tela de bloqueio / login do Windows (LogonUI.exe / desktop Winlogon)."""
+        if not IS_WIN:
+            return False
+        try:
+            if self.psutil:
+                for p in self.psutil.process_iter(["name"]):
+                    if (p.info.get("name") or "").lower() == "logonui.exe":
+                        return True
+        except Exception:
+            pass
+        return _active_desktop_name().lower() == "winlogon" and not self.uac_open()
+
 
 # ------------------------------------------------------------------ tela
 
@@ -1115,6 +1491,11 @@ class Screen:
             self.err = str(e)
 
     def _sct(self):
+        if IS_WIN:
+            desk = _sync_thread_desktop()
+            if getattr(self.local, "desk", None) != desk:
+                self.local.desk = desk
+                self.local.s = None
         s = getattr(self.local, "s", None)
         if s is None:
             s = self.mss.mss()
@@ -1467,6 +1848,8 @@ class Hub:
     def queue_input(self, fn, *a):
         def job():
             try:
+                if IS_WIN:
+                    _sync_thread_desktop()
                 fn(*a)
             except Exception as e:
                 log("erro de entrada:", e)
@@ -1742,12 +2125,20 @@ class Hub:
         self.dirty = True
         log(f"Conectado: {name} ({req.remote})")
         mons = await self.loop.run_in_executor(self.scr_exec, self.scr.list) if self.scr.ok else []
+        locked_now = await self.run_sys(self.win.locked_open) if IS_WIN else False
         await self.send(ws, {
             "t": "hello", "pc": platform.node(), "versao": current_version(self.cfg), "admin": self.admin,
             "recursos": self.features(), "monitores": len(mons) or 1, "https_port": self.https_port,
             "mac": mac_addr(), "porta": self.port, "lan_ip": lan_ip(), "tailscale_ip": tailscale_ip(),
-            "apps": [a.get("nome", "?") for a in self.cfg.get("apps", [])],
+            "apps": [a.get("nome", "?") for a in self.cfg.get("apps", [])], "locked": locked_now,
         })
+        if locked_now:
+            await self.send(ws, {
+                "t": "notify", "level": "info", "id": "locked", "sticky": True,
+                "title": "PC na tela de bloqueio",
+                "msg": "Toque abaixo para digitar seu PIN ou senha do Windows e entrar.",
+                "actions": [{"label": "🔓 Desbloquear PC", "send": {"t": "unlock_prompt"}}],
+            })
         if self._progress:
             await self.send(ws, self.progress_msg())
         if not self.inp.ok:
@@ -1949,7 +2340,15 @@ class Hub:
             await self.run_sys(webbrowser.open, url)
             return await self.send(ws, {"t": "notify", "level": "ok", "title": "Link aberto no PC", "msg": url})
 
-        # energia
+        # energia e desbloqueio
+        if t == "unlock":
+            pin = str(d.get("pin", ""))
+            ok, msg = await self.loop.run_in_executor(None, unlock_windows_pc, pin, self.win)
+            if ok:
+                await self.broadcast({"t": "dismiss", "id": "locked"})
+            return await self.send(ws, {"t": "notify", "level": "ok" if ok else "warn",
+                                        "title": "Desbloquear PC" if ok else "Permissão necessária no PC",
+                                        "msg": msg, "sticky": not ok})
         if t == "power":
             a = str(d.get("a", ""))
             await self.run_sys(self.sys.power, a, int(_num(d, "min", 0)))
@@ -1998,7 +2397,7 @@ class Hub:
 
     # -------- vigia: volume, janelas, área de transferência, pedidos de autorização
     def watch_tick(self):
-        out = {"vol": None, "fg": None, "uac": False, "wins": None, "clip": None}
+        out = {"vol": None, "fg": None, "uac": False, "locked": False, "wins": None, "clip": None}
         try:
             v = self.vol.get()
             out["vol"] = (v["v"], v["m"])
@@ -2017,6 +2416,7 @@ class Hub:
                     fg["elev"] = process_elevated(fg["pid"])
                 out["fg"] = fg
                 out["uac"] = self.win.uac_open()
+                out["locked"] = self.win.locked_open()
                 out["wins"] = self.win.list()
             except Exception as e:
                 log("vigia:", e)
@@ -2076,6 +2476,7 @@ class Hub:
     async def watch(self):
         last_wins = None
         uac_prev = False
+        locked_prev = False
         warned = set()
         while True:
             await asyncio.sleep(1.5)
@@ -2097,6 +2498,15 @@ class Hub:
                 if sig != last_wins:
                     last_wins = sig
                     await self.broadcast({"t": "windows", "list": st["wins"]})
+            if st["locked"] and not locked_prev:
+                await self.notify(
+                    "🔒 O PC está bloqueado",
+                    "Toque abaixo para digitar o PIN/senha do Windows e desbloquear a tela do PC.",
+                    "warn", nid="locked", sticky=True,
+                    actions=[{"label": "🔓 Desbloquear PC", "send": {"t": "unlock_prompt"}}])
+            elif not st["locked"] and locked_prev:
+                await self.broadcast({"t": "dismiss", "id": "locked"})
+            locked_prev = st["locked"]
             if st["uac"] and not uac_prev:
                 await self.notify(
                     "O Windows está pedindo autorização",
@@ -2231,6 +2641,44 @@ def set_autostart(on):
                 winreg.DeleteValue(k, "RemotoGF")
             except OSError:
                 pass
+    if is_admin():
+        ensure_admin_tasks(autostart=on)
+
+
+def ensure_admin_tasks(autostart=None):
+    """Registra tarefas agendadas como Administrador/SYSTEM para que o Remoto GF consiga
+    iniciar já elevado (sem UAC) e desbloquear a tela de bloqueio do Windows."""
+    if not IS_WIN or not is_admin():
+        return
+    try:
+        if autostart is None:
+            autostart = get_autostart()
+        if FROZEN:
+            exe_cmd = f'"{sys.executable}"'
+        else:
+            pyw = Path(sys.executable).with_name("pythonw.exe")
+            exe = pyw if pyw.exists() else Path(sys.executable)
+            exe_cmd = f'"{exe}" "{Path(__file__).resolve()}"'
+        pub_tmp = Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / "RemotoGF" / "unlock.tmp"
+        pub_tmp.parent.mkdir(parents=True, exist_ok=True)
+        # Tarefa SYSTEM sob demanda para desbloquear a tela de bloqueio mesmo se o app estiver sem admin
+        subprocess.run([
+            "schtasks", "/Create", "/TN", "RemotoGF-Unlock",
+            "/TR", f'{exe_cmd} --unlock-worker "{pub_tmp}"',
+            "/SC", "ONCE", "/ST", "00:00", "/RU", "SYSTEM", "/RL", "HIGHEST", "/F"
+        ], capture_output=True, timeout=6, creationflags=0x08000000)
+        # Se início automático estiver ativo, registra tarefa ONLOGON com privilégio máximo (/RL HIGHEST)
+        if autostart:
+            subprocess.run([
+                "schtasks", "/Create", "/TN", "RemotoGF",
+                "/TR", f"{exe_cmd} --minimizado",
+                "/SC", "ONLOGON", "/RL", "HIGHEST", "/F"
+            ], capture_output=True, timeout=6, creationflags=0x08000000)
+        else:
+            subprocess.run(["schtasks", "/Delete", "/TN", "RemotoGF", "/F"],
+                           capture_output=True, timeout=5, creationflags=0x08000000)
+    except Exception as e:
+        log("ensure_admin_tasks:", e)
 
 
 # ------------------------------------------------------------------ janela do PC
@@ -3031,10 +3479,25 @@ def setup_crash_log():
 
 
 def main():
+    if "--unlock-worker" in sys.argv and IS_WIN:
+        idx = sys.argv.index("--unlock-worker")
+        pin = ""
+        if idx + 1 < len(sys.argv):
+            p = Path(sys.argv[idx + 1])
+            try:
+                if p.exists():
+                    pin = p.read_text(encoding="utf-8").strip()
+                    p.unlink(missing_ok=True)
+            except Exception:
+                pass
+        _unlock_sequence(pin)
+        return
     setup_crash_log()
     if "--admin" in sys.argv and IS_WIN and not is_admin():
         if relaunch_as_admin():
             return
+    if IS_WIN and is_admin():
+        ensure_admin_tasks()
     cfg = load_config()
     hub = Hub(cfg)
     headless = "--sem-janela" in sys.argv

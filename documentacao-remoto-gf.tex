@@ -192,6 +192,15 @@ Todos os itens abaixo estao \feito implementados e testados.
 \subsection{Energia e sistema}
 \begin{itemize}
   \item Bloquear, desligar a tela, suspender, reiniciar e desligar (com cancelamento).
+  \item \textbf{Desbloquear o PC pelo celular (tela de login / Winlogon):} o Windows isola a
+  tela de bloqueio (\texttt{LogonUI.exe}) na area de trabalho segura \texttt{winsta0\textbackslash Winlogon},
+  onde programas comuns nao conseguem clicar nem digitar. O Remoto GF resolve isso operando com
+  token \texttt{SYSTEM} (via duplicacao do processo \texttt{winlogon.exe} ou tarefa agendada
+  \texttt{RemotoGF-Unlock}) e alternando o thread de captura e entrada para o desktop
+  \texttt{Winlogon}. Ao tocar em \textbf{Desbloquear PC} (na notificacao automatica, na aba
+  Energia ou na aba Teclado), o PC acorda o monitor, sobe a cortina do relogio, limpa o campo,
+  digita o PIN (Windows Hello) ou senha com \texttt{SendInput} nativo (scan codes + virtual keys)
+  e confirma com \texttt{Enter}. O PIN pode ficar salvo no celular para desbloqueio com 1 toque.
   \item Desligamento agendado por tempo.
   \item Status do PC: CPU, memoria, bateria e tempo ligado.
   \item Copiar e colar texto entre o celular e o PC.
@@ -405,6 +414,7 @@ Ditado por voz & Pronto \\
 Saude do PC (GPU, discos, aviso de disco cheio) & Pronto \\
 Ligar o PC de fora de casa (relé) & Pronto, falta o servidor \\
 Tela economica fora de casa & Pronto (H.264 depois) \\
+Desbloquear tela de login do Windows (PIN/senha) pelo celular & Pronto \\
 \bottomrule
 \end{tabular}
 \end{center}

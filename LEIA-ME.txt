@@ -35,6 +35,19 @@ ative "Wake on Magic Packet" nas propriedades da placa de rede e desligue a
 inicialização rápida do Windows. Depois de atualizar o PC, conecte o celular uma vez em
 casa para ele salvar o endereço (MAC) certo da placa de rede.
 
+DESBLOQUEAR O PC PELO CELULAR (TELA DE LOGIN / PIN)
+Quando o Windows está bloqueado (tela de relógio ou pedindo PIN/senha), o Windows isola
+essa tela em uma área protegida (Winlogon). O Remoto GF resolve isso automaticamente:
+1. Assim que o PC bloqueia, aparece um aviso no celular com o botão "🔓 Desbloquear PC".
+2. Você também tem o botão "🔓 Desbloquear PC (Tela de Login)" na aba Energia e na aba
+   Teclado.
+3. Digite o seu PIN (Windows Hello) ou senha do Windows (você pode marcar para salvar no
+   celular e desbloquear com 1 toque nas próximas vezes). O Remoto GF acorda o monitor,
+   levanta a cortina de bloqueio, digita o PIN/senha direto no Winlogon e aperta Enter.
+4. Importante: para o Windows permitir digitar na tela de bloqueio, abra o Remoto GF uma
+   vez como Administrador (ou instale pelo RemotoGF-Instalador.exe, que já cria a tarefa
+   de sistema automaticamente).
+
 NO PC
 - Fechar a janela deixa ele rodando na bandeja (perto do relógio).
 - "Iniciar junto com o Windows" na janela ou no instalador.
