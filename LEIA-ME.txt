@@ -26,7 +26,9 @@ fica aberto na internet e não precisa mexer no roteador.
 3. Conecte o celular em casa uma vez: o app aprende esse endereço sozinho. Ele também
    pode ser digitado na tela de conectar ou em Configurações > Fora de casa.
 4. Fora de casa, deixe o Tailscale ligado no celular e abra o Remoto GF. Se a rede de
-   casa não responder, o app troca sozinho para o endereço do Tailscale.
+   casa não responder, o app troca sozinho para o endereço do Tailscale. Isso vale também
+   em outra rede Wi-Fi com a mesma faixa de IP da sua casa (ex.: 192.168.3.x no trabalho):
+   se outro aparelho responder no endereço de casa, o app percebe e usa o Tailscale.
 Dica: use senha forte e verificação em duas etapas na conta do Tailscale.
 
 LIGAR O PC PELA REDE (WAKE-ON-LAN)
