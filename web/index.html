@@ -700,10 +700,16 @@ $('#pairBtn').onclick=async()=>{
   const tryPair=async()=>{ const ctl=new AbortController(); const t=setTimeout(()=>ctl.abort(),5000);
     try{ return await fetch(base()+'/api/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin,nome}),signal:ctl.signal}); }
     finally{ clearTimeout(t); } };
-  try{let r;
-    try{ r=await tryPair(); }
-    catch(netErr){ const alt=altHost(); if(!alt) throw new Error('Não consegui falar com o PC. Fora de casa? Ligue o Tailscale e preencha o endereço fora de casa.'); host=alt; LS.set('host',host); r=await tryPair(); }
-    const j=await r.json(); if(!r.ok) throw new Error(j.erro||'Falhou');
+  // Só vale a resposta que for do Remoto GF (JSON). Em outra rede Wi-Fi com a mesma faixa de IP
+  // (ex.: 192.168.3.x no trabalho), outro aparelho pode responder no endereço de casa com uma
+  // página HTML: isso conta como "não achei o PC" e o app tenta o endereço fora de casa.
+  const pairAt=async()=>{ const r=await tryPair(); let j;
+    try{ j=await r.json(); }catch(e){ throw new TypeError('Outro aparelho respondeu nesse endereço (não é o Remoto GF).'); }
+    if(!j||typeof j!=='object') throw new TypeError('Resposta inválida'); return {r,j}; };
+  try{let r,j;
+    try{ ({r,j}=await pairAt()); }
+    catch(netErr){ const alt=altHost(); if(!alt) throw new Error('Não consegui falar com o PC. Fora de casa? Ligue o Tailscale e preencha o endereço fora de casa.'); host=alt; LS.set('host',host); ({r,j}=await pairAt()); }
+    if(!r.ok) throw new Error(j.erro||'Falhou');
     token=j.token; LS.set('token',token); $('#pair').classList.add('hidden'); $('#pin').value=''; connect();
   }catch(e){$('#pairErr').textContent=e.message||'Não consegui falar com o PC.';}
 };
